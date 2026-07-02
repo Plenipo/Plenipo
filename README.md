@@ -94,6 +94,16 @@ infra/                               # Terraform (azurerm): Container Apps, Post
    `platform.users.manage`). Wildcards (`tools.finance.*`) and the `*` global grant are honoured.
 3. **Per-resource ACLs** — owner/editor/viewer (the seam exists; module-specific).
 
+**Bring your own IdP (Entra External ID / B2C).** Authentication is OIDC: set the `Auth` section
+(`Authority` + `Audience`) and Cortex validates that IdP's JWTs — the `X-Dev-*` dev scheme isn't
+even registered once a real authority is configured (and is Development-only regardless). For
+deployments that want the IdP to own authorization too, set `"Auth": { "PermissionSource": "Token" }`:
+roles then come **exclusively** from the token (Entra app roles / B2C claims), internal role
+assignments and per-user grants are ignored, JIT provisioning never invents a default role, and the
+admin endpoints that would edit internal assignments answer 409 with guidance. The tenant's
+role → permission *baselines* stay in force — they're what translate an IdP role name into Cortex's
+fine-grained tool permissions, which no IdP knows about.
+
 Endpoints gate on permissions with `RequireAuthorization(PermissionRequirement.PolicyName("…"))`;
 policies are materialised on demand by a custom `IAuthorizationPolicyProvider`. The **admin console**
 (`@cortex/admin-ui`, a separate app served at `/admin`) exposes the full permission map (every module

@@ -29,7 +29,8 @@ public sealed class RequestEnricher(
     PlatformDbContext db,
     IPermissionResolver permissionResolver,
     IAuditLog auditLog,
-    IOptions<AuthOptions> authOptions) : IRequestEnricher
+    IOptions<AuthOptions> authOptions,
+    IOptions<AuthorizationSourceOptions> authorizationSource) : IRequestEnricher
 {
     public async Task<bool> EnrichAsync(ClaimsPrincipal principal, string? ipAddress, CancellationToken cancellationToken)
     {
@@ -81,9 +82,11 @@ public sealed class RequestEnricher(
             };
             // Default the new user to the "user" role ONLY when the token asserts no roles of its own.
             // A principal whose IdP already scopes it (e.g. "guest") must not silently escalate to the
-            // user baseline via a DB role the platform invented.
+            // user baseline via a DB role the platform invented. In Token mode the platform NEVER
+            // invents a role — the external IdP is the single authority, so a role-less token means
+            // a permission-less user until the IdP says otherwise.
             var hasTokenRoles = principal.FindAll(ClaimTypes.Role).Concat(principal.FindAll("roles")).Any();
-            if (!hasTokenRoles)
+            if (!hasTokenRoles && !authorizationSource.Value.IsTokenSourced)
             {
                 user.Roles.Add(new UserRole { TenantId = tenant.Id, UserId = user.Id, Role = Roles.User });
             }

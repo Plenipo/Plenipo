@@ -556,6 +556,7 @@ public static class AdminEndpoints
             return Results.NoContent();
         })
         .RequireAuthorization(PermissionRequirement.PolicyName(Permissions.ManageRoles))
+        .AddEndpointFilter<RequiresDatabaseAuthorizationFilter>()
         .WithName("Admin_AssignRole");
 
         // Revoke a role from a user.
@@ -580,6 +581,7 @@ public static class AdminEndpoints
             return Results.NoContent();
         })
         .RequireAuthorization(PermissionRequirement.PolicyName(Permissions.ManageRoles))
+        .AddEndpointFilter<RequiresDatabaseAuthorizationFilter>()
         .WithName("Admin_RevokeRole");
 
         // Grant a fine-grained permission (e.g. a single tool, or a module wildcard).
@@ -624,6 +626,7 @@ public static class AdminEndpoints
             return Results.NoContent();
         })
         .RequireAuthorization(PermissionRequirement.PolicyName(Permissions.ManageRoles))
+        .AddEndpointFilter<RequiresDatabaseAuthorizationFilter>()
         .WithName("Admin_GrantPermission");
 
         // Revoke a fine-grained permission. Permission strings contain dots/wildcards, so take it in the body.
@@ -649,6 +652,7 @@ public static class AdminEndpoints
             return Results.NoContent();
         })
         .RequireAuthorization(PermissionRequirement.PolicyName(Permissions.ManageRoles))
+        .AddEndpointFilter<RequiresDatabaseAuthorizationFilter>()
         .WithName("Admin_RevokePermission");
     }
 

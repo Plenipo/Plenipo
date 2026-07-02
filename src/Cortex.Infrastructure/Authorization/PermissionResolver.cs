@@ -3,6 +3,7 @@ using Cortex.Application.Authorization;
 using Cortex.Core.Identity;
 using Cortex.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace Cortex.Infrastructure.Authorization;
 
@@ -12,20 +13,28 @@ namespace Cortex.Infrastructure.Authorization;
 /// permission claims. Roles are expanded to permissions via the tenant's <em>configured</em> role →
 /// permission rows (editable in the admin console), falling back to <see cref="RolePermissions.Defaults"/>
 /// for a tenant that has none. See <see cref="RolePermissionResolution"/> for the exact rules.
+///
+/// With <c>Auth:PermissionSource=Token</c> the DB sources drop out entirely: roles come only from
+/// the IdP's token, and per-user DB grants are never consulted — the external IdP is the single
+/// source of truth for who holds what (the baselines still translate role names into permissions).
 /// </summary>
-public sealed class PermissionResolver(PlatformDbContext db, ICurrentUser currentUser) : IPermissionResolver
+public sealed class PermissionResolver(
+    PlatformDbContext db,
+    ICurrentUser currentUser,
+    IOptions<AuthorizationSourceOptions> authorizationSource) : IPermissionResolver
 {
     public async Task<IReadOnlySet<string>> ResolveAsync(ClaimsPrincipal principal, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(principal);
 
+        var tokenSourced = authorizationSource.Value.IsTokenSourced;
         var permissions = new HashSet<string>(StringComparer.Ordinal);
 
         // 1. Collect every role the principal holds — asserted by the IdP and/or assigned in the DB.
         var roles = new HashSet<string>(StringComparer.Ordinal);
         roles.UnionWith(principal.FindAll(ClaimTypes.Role).Concat(principal.FindAll("roles")).Select(c => c.Value));
 
-        if (currentUser.UserId is Guid userId)
+        if (!tokenSourced && currentUser.UserId is Guid userId)
         {
             var dbRoles = await db.UserRoles
                 .Where(r => r.UserId == userId)
@@ -47,8 +56,8 @@ public sealed class PermissionResolver(PlatformDbContext db, ICurrentUser curren
 
         permissions.UnionWith(RolePermissionResolution.PermissionsForRoles(roles, configuredByRole));
 
-        // 3. Explicit per-user grants for the provisioned user (tenant-filtered).
-        if (currentUser.UserId is Guid uid)
+        // 3. Explicit per-user grants for the provisioned user (tenant-filtered) — never in Token mode.
+        if (!tokenSourced && currentUser.UserId is Guid uid)
         {
             var dbPermissions = await db.UserPermissions
                 .Where(p => p.UserId == uid)

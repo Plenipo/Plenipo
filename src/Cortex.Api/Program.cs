@@ -1,4 +1,7 @@
+using Cortex.AspNetCore.Connectors;
 using Cortex.AspNetCore.Hosting;
+using Cortex.Connectors.AzureBlob;
+using Cortex.Connectors.LocalFolder;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Cortex base platform host — no domain modules installed here.
@@ -18,6 +21,11 @@ builder.AddCortexPlatform();
 
 // ── Add your domain modules here, e.g.:
 // builder.AddCortexModule<FinanceModule>();
+
+// The built-in data-source connectors ship even on the bare platform (default-off per tenant —
+// an admin turns each one on under Integrations). Your own connectors register the same way.
+builder.AddCortexConnector<LocalFolderConnector>();
+builder.AddCortexConnector<AzureBlobConnector>();
 
 var app = builder.Build();
 

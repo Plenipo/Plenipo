@@ -47,7 +47,7 @@ public static class InfrastructureSetup
 
         AddRequestContext(services);
         AddPersistence(builder);
-        AddAuthorization(services);
+        AddAuthorization(builder);
         AddAuditing(services);
         AddAgentStack(builder);
         AddFilesAndDocuments(builder);
@@ -167,8 +167,17 @@ public static class InfrastructureSetup
             options.UseNpgsql(builder.Configuration.GetConnectionString(OutboxDbContext.ConnectionName)));
     }
 
-    private static void AddAuthorization(IServiceCollection services)
+    private static void AddAuthorization(IHostApplicationBuilder builder)
     {
+        var services = builder.Services;
+
+        // Database (default) merges internal RBAC with token claims; Token delegates authorization
+        // entirely to the external IdP. Fail fast on a typo rather than silently defaulting.
+        services.Configure<AuthorizationSourceOptions>(
+            builder.Configuration.GetSection(AuthorizationSourceOptions.SectionName));
+        (builder.Configuration.GetSection(AuthorizationSourceOptions.SectionName).Get<AuthorizationSourceOptions>()
+            ?? new AuthorizationSourceOptions()).ThrowIfInvalid();
+
         services.AddScoped<IPermissionResolver, PermissionResolver>();
         services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
         services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();

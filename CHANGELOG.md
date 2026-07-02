@@ -28,6 +28,11 @@ all runnable with no AI key via a built-in Mock provider. See [README.md](README
 - **Layered RBAC** (system roles → dotted permissions with wildcards → per-resource ACLs), an
   append-only **audit log**, and per-turn **token-usage** tracking.
 - **Multi-tenant by default** — row-level isolation via EF Core global query filters on `TenantId`.
+- **External-IdP authorization mode** — `Auth:PermissionSource=Token` makes Entra External ID / B2C
+  the single source of truth: roles come exclusively from the token, internal role assignments and
+  per-user grants are ignored (their admin endpoints answer 409 with guidance), and JIT provisioning
+  never invents a default role. Role → permission baselines remain the translation layer from IdP
+  role names to fine-grained tool permissions.
 - **Provider-swappable AI** (OpenAI / Azure OpenAI / Ollama) plus a dependency-free **Mock** provider so
   chat — and real, audited tool calls plus the approval gate — work with zero configuration.
 - **Admin/security dashboard API** — the full permission map, users & roles, token usage, and audit log.

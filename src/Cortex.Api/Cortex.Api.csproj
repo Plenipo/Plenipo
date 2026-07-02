@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Cortex.AspNetCore\Cortex.AspNetCore.csproj" />
+    <ProjectReference Include="..\Cortex.Connectors\Cortex.Connectors.csproj" />
   </ItemGroup>
 
 </Project>
