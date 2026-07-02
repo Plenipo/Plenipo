@@ -1,0 +1,40 @@
+# Legal vertical — v1 plan
+
+Derived from [research/legal-ai.md](../research/legal-ai.md) (Harvey + competitor analysis).
+
+## v1 scope (build order)
+
+1. **Matter entity + live Matters workspace tab (create/list matters; retire the placeholder tab)** _(effort: medium)_
+   - Builds on: Module-owned DbContext + IModule.MigrateAsync (Finance/Nutrition pattern), TenantId global query filters, TabDescriptor with DataEndpoint/Columns for the server-driven table, IModuleToolSource tools create_matter (RequiresApproval) / list_matters
+2. **attach_document_to_matter tool — the documented 'store this as part of the case of Julia Assange' flow — plus per-matter document listing** _(effort: small)_
+   - Builds on: StoredFile/IFileStore + the plain-text chat-attachment file-id convention (already works on web, AG-UI, SignalR, WhatsApp) + the exact sketch in docs/DOCUMENT_TOOLS.md + RequiresApproval HITL gate
+3. **Matter Q&A with citations: ask questions over a matter's documents, every claim cited to file id (+ page where extractable)** _(effort: medium)_
+   - Builds on: read_document platform tool (PdfPig + IOcrEngine fallback) chained over matter files by the agent; citation format enforced via ModuleManifest.AgentInstructions; every tool call already audited
+4. **Tenant clause library + firm playbook: persisted, admin-editable clauses and review rules replacing the static LegalCatalog** _(effort: small)_
+   - Builds on: Existing LegalCatalog becomes seed data in the module schema; legal:admin role + PermissionRequirement-gated CRUD endpoints; playbook writes approval-gated
+5. **Drafting to work product: draft an NDA/engagement letter from clause templates + matter facts, emitted as a stored PDF attached to the matter** _(effort: small)_
+   - Builds on: draft_clause + generate_pdf platform tool + attach_document_to_matter, chained by the model in one turn; stored_files provenance records origin
+6. **Playbook contract review: red-flag report (deviations, missing clauses, risk notes) for one uploaded contract, saved to the matter as a PDF memo** _(effort: medium)_
+   - Builds on: read_document + playbook rows + generate_pdf; RequiresApproval before the report is stored; audit trail for the whole review
+7. **Bulk review table: docs × questions extraction grid across all documents in a matter, rendered as a tab and exportable** _(effort: large)_
+   - Builds on: read_document loop over matter files + server-driven table (TabDescriptor Columns/DataEndpoint) + per-conversation token budgets; needs a background-job seam for long runs — the one genuinely new platform primitive
+8. **Guided workflows: packaged multi-step tasks (NDA review, diligence checklist, timeline extraction) that gather context stepwise and emit a defined work product** _(effort: medium)_
+   - Builds on: ModuleManifest.AgentInstructions + SuggestedPrompts + composition of the tools above + HITL approvals for side-effecting steps
+9. **WhatsApp client intake: a client sends a contract on WhatsApp with a caption, it lands on their matter and triggers the review workflow** _(effort: small)_
+   - Builds on: WhatsApp channel (Meta media API → IFileStore with whatsapp provenance, JIT phone-user provisioning — already end-to-end) + attach_document_to_matter; mostly prompts and per-tenant config
+10. **Matter-level access control: ethical-wall enforcement that fails closed, per-matter membership, and a per-matter audit view** _(effort: medium)_
+   - Builds on: The per-resource ACL seam (owner/editor/viewer) + custom IAuthorizationPolicyProvider policies + append-only audit DB filtered by matter
+
+## Product name candidates
+
+- **EnBanc** — From 'en banc' — the full bench sitting together; evokes collective judgment and thoroughness, exactly the multi-agent/HITL story. Web-checked: cleanest of the list — no legal-tech mark found (only EnBanc Equities, a judgment-finance firm in a different class).
+- **AdLitem** — Latin 'for the suit' — a representative appointed to act within one proceeding, which is literally our matter-scoped-agent security model (an agent appointed per matter, fails closed outside it). Web-checked: only small European litigation boutiques use the term; no software mark found.
+- **SecondChair** — The associate who sits second chair at trial: positions the AI as support that never leads — great bar-ethics optics ('your AI second chair'). Not web-verified; expect minor podcast/CLE usage, run a clearance search.
+- **Silk** — 'Taking silk' = appointment as King's Counsel; short, premium, distinctly legal to common-law buyers. Caution: Amazon Silk (browser) is a well-known software mark and several Silk-named data/security startups exist — no legal-AI collision found, but class-42 clearance is needed.
+- **Voir** — From 'voir dire' — Old French 'to speak the truth'; fits the citation-grounded, verify-everything posture, and it's a four-letter brandable. Unverified; Netflix's 'Voir' documentary series exists (different class).
+- **BriefForge** — Forges briefs and work product; pairs with the existing NutriForge naming pattern in this codebase. Caution: the space is crowded — LexForge exists (lexforge.ai, lexforge.com, lexforgelegal.com) and BriefCatch is adjacent; differentiable but not pristine.
+- **Obiter** — From 'obiter dictum' — a lovely, ownable legal word, but web check shows it is TAKEN: obiter.ai is a Canadian computational-law research platform. Recorded here so it isn't re-proposed. (Also eliminated by checks: Chancery — chancery.ai is a UK legal-AI firm; Paralex — paralex.ai; plus known collisions Docket (DocketAlarm/Docket AI), Gavel (gavel.io), Amicus (Amicus Attorney), and anything with Counsel (TR CoCounsel, LexisNexis CounselLink).)
+
+## Repo strategy
+
+Incubate in this repo now; extract to its own repo at the first tagged platform release. The platform README's end state is right — a product is a thin host in its own repo consuming the Cortex.* NuGet packages and @cortex/ui — but that path isn't live yet: there is no GitHub remote, publish.yml has never run, 0.1.0-alpha is untagged, and the GitHub Packages feed doesn't exist. A separate repo today could only consume the local pack feed (dotnet pack -o ./localfeed), adding repack-and-repin friction during exactly the phase when the vertical will expose platform gaps (citation conventions, a background-job seam for bulk review, finishing the per-resource ACL seam) that are cheapest to fix in the same commit as the module change. So: (1) Now — grow samples/Cortex.Modules.Legal in place (v1 items 1-6), keeping it package-shaped: reference only packable libraries (Cortex.Modules.Sdk, Cortex.Application, Cortex.Core), own DbContext/schema/migrations, no reaching into non-packable internals — CI's pack-and-consume smoke tests (eng/verify-packaging.sh) keep the boundary honest. (2) Extraction trigger — push the GitHub remote and tag 0.1.0-alpha so publish.yml populates the GitHub Packages feed; then create the product repo (e.g. enbanc-app): the module library + a thin branded host (AddCortexModule + CortexApp branding) + its own Terraform/CI, consuming Cortex.* from the feed. (3) After extraction — re-thin the in-repo Legal sample back to a small demo (or keep the current clause-library version as-is) so the samples solution keeps demonstrating a stateless module; the commercial vertical stops being a sample. Platform-shaped needs discovered post-extraction (background jobs, Word add-in seam, research-source connectors) go into the platform repo as primitives, not into the product.
