@@ -7,9 +7,9 @@ public sealed record Clause(string Id, string Title, string Category, string Sum
 public sealed record RenderedClause(string Title, string Category, string Body);
 
 /// <summary>
-/// A small library of standard contract clauses. Deterministic reference data so the Legal module is
-/// stateless (no DbContext) — the agent searches it and fills templates, exactly like NutritionCatalog.
-/// Templates use {PartyA} / {PartyB} placeholders.
+/// The default clause library — the SEED for each tenant's editable clause table (see
+/// <c>LegalModule.SeedAsync</c>), plus the shared search/render helpers both the seed data and the
+/// tenant's persisted clauses use. Templates use {PartyA} / {PartyB} placeholders.
 /// </summary>
 public static class LegalCatalog
 {
@@ -42,7 +42,16 @@ public static class LegalCatalog
     ];
 
     /// <summary>Case-insensitive search over title, category, summary, and id.</summary>
-    public static IEnumerable<Clause> Search(string query)
+    public static IEnumerable<Clause> Search(string query) =>
+        Search(Clauses, query, c => [c.Title, c.Category, c.Summary, c.Id]);
+
+    /// <summary>
+    /// The shared two-stage search: exact-phrase match first, then a forgiving fallback so a
+    /// natural-language query ("draft a confidentiality clause") still matches — an item hits if any
+    /// significant word (≥ 4 chars, skipping short stop-words) of the query appears in one of its
+    /// searchable fields. Used by both the seed catalog and the tenant's persisted clauses.
+    /// </summary>
+    public static IReadOnlyList<T> Search<T>(IEnumerable<T> items, string query, Func<T, string[]> fields)
     {
         if (string.IsNullOrWhiteSpace(query))
         {
@@ -50,33 +59,39 @@ public static class LegalCatalog
         }
 
         var q = query.Trim();
-        var exact = Clauses.Where(c => Matches(c, q)).ToArray();
+        var all = items as IReadOnlyList<T> ?? [.. items];
+        var exact = all.Where(i => Matches(fields(i), q)).ToArray();
         if (exact.Length > 0)
         {
             return exact;
         }
 
-        // Forgiving fallback so a natural-language query ("draft a confidentiality clause") still matches:
-        // match a clause if any significant word (≥ 4 chars, skipping short stop-words) of the query hits one
-        // of its searchable fields.
         var words = q.Split([' ', ',', '.', ';', ':', '?', '!', '-', '/', '"', '\''], StringSplitOptions.RemoveEmptyEntries)
             .Where(w => w.Length >= 4)
             .ToArray();
-        return Clauses.Where(c => words.Any(w => Matches(c, w))).ToArray();
+        return [.. all.Where(i => words.Any(w => Matches(fields(i), w)))];
     }
 
-    private static bool Matches(Clause c, string term) =>
-        c.Title.Contains(term, StringComparison.OrdinalIgnoreCase) ||
-        c.Category.Contains(term, StringComparison.OrdinalIgnoreCase) ||
-        c.Summary.Contains(term, StringComparison.OrdinalIgnoreCase) ||
-        c.Id.Contains(term, StringComparison.OrdinalIgnoreCase);
+    private static bool Matches(string[] fields, string term) =>
+        fields.Any(f => f.Contains(term, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>Renders a clause's template, substituting the two party names.</summary>
-    public static RenderedClause Render(Clause clause, string partyA, string partyB)
-    {
-        var body = clause.Template
+    public static RenderedClause Render(Clause clause, string partyA, string partyB) =>
+        new(clause.Title, clause.Category, RenderTemplate(clause.Template, partyA, partyB));
+
+    /// <summary>Substitutes {PartyA} / {PartyB} in any clause template (seeded or tenant-authored).</summary>
+    public static string RenderTemplate(string template, string partyA, string partyB) =>
+        template
             .Replace("{PartyA}", string.IsNullOrWhiteSpace(partyA) ? "Party A" : partyA.Trim(), StringComparison.Ordinal)
             .Replace("{PartyB}", string.IsNullOrWhiteSpace(partyB) ? "Party B" : partyB.Trim(), StringComparison.Ordinal);
-        return new RenderedClause(clause.Title, clause.Category, body);
-    }
+
+    /// <summary>The default firm playbook rules seeded for a new tenant (editable from there).</summary>
+    public static readonly IReadOnlyList<(string Title, string Guidance, Persistence.RuleSeverity Severity)> DefaultPlaybook =
+    [
+        ("Uncapped liability", "Flag any contract without a limitation-of-liability clause, or where liability is uncapped or exceeds twelve months of fees.", Persistence.RuleSeverity.Critical),
+        ("Unilateral termination", "Flag termination rights that only one party holds, or cure periods shorter than fifteen days.", Persistence.RuleSeverity.Critical),
+        ("Missing confidentiality", "Flag agreements that exchange non-public information without a confidentiality clause.", Persistence.RuleSeverity.Caution),
+        ("Broad indemnification", "Flag indemnities covering indirect or consequential damages, or ones not limited to the indemnifying party's breach or negligence.", Persistence.RuleSeverity.Caution),
+        ("Auto-renewal", "Note evergreen/auto-renewal terms and their notice windows so deadlines can be docketed in the firm's calendar system.", Persistence.RuleSeverity.Info),
+    ];
 }

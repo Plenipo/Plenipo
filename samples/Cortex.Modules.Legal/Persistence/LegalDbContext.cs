@@ -18,6 +18,8 @@ public sealed class LegalDbContext(
 
     public DbSet<Matter> Matters => Set<Matter>();
     public DbSet<MatterDocument> MatterDocuments => Set<MatterDocument>();
+    public DbSet<TenantClause> Clauses => Set<TenantClause>();
+    public DbSet<PlaybookRule> PlaybookRules => Set<PlaybookRule>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -43,6 +45,30 @@ public sealed class LegalDbContext(
             b.Property(x => x.Note).HasMaxLength(500);
             b.HasIndex(x => x.MatterId);
             b.HasIndex(x => new { x.MatterId, x.FileId }).IsUnique(); // a file attaches to a matter once
+            b.HasQueryFilter(x => x.TenantId == tenantContext.TenantId);
+        });
+
+        modelBuilder.Entity<TenantClause>(b =>
+        {
+            b.ToTable("clauses");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Slug).HasMaxLength(100).IsRequired();
+            b.Property(x => x.Title).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Category).HasMaxLength(100).IsRequired();
+            b.Property(x => x.Summary).HasMaxLength(500).IsRequired();
+            b.Property(x => x.Template).IsRequired();
+            b.HasIndex(x => new { x.TenantId, x.Slug }).IsUnique();
+            b.HasQueryFilter(x => x.TenantId == tenantContext.TenantId);
+        });
+
+        modelBuilder.Entity<PlaybookRule>(b =>
+        {
+            b.ToTable("playbook_rules");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Title).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Guidance).HasMaxLength(2000).IsRequired();
+            b.Property(x => x.Severity).HasConversion<string>().HasMaxLength(16);
+            b.HasIndex(x => x.TenantId);
             b.HasQueryFilter(x => x.TenantId == tenantContext.TenantId);
         });
 

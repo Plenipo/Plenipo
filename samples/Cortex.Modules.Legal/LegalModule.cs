@@ -24,6 +24,9 @@ public sealed class LegalModule : IModule
     public const string ViewClauses = "legal.clauses.view";
     public const string ViewMatters = "legal.matters.view";
 
+    /// <summary>Curate the firm's clause library and playbook (add/remove entries).</summary>
+    public const string ManageLibrary = "legal.library.manage";
+
     public ModuleManifest Manifest { get; } = new()
     {
         Id = Id,
@@ -38,9 +41,13 @@ public sealed class LegalModule : IModule
             "carries a '[Attached files]' block with file ids), and list_matter_documents to see a matter's files. " +
             "To answer questions about a matter's documents, call read_document with each file id and CITE the file " +
             "name and id for every claim you take from a document — never state document contents without a citation. " +
-            "Use search_clauses / draft_clause for clause work. Always make clear that output is a starting template, " +
-            "not legal advice, and recommend review by a licensed attorney. Never invent statutes, case citations, or " +
-            "jurisdiction-specific rules; if asked for those, say a qualified lawyer must confirm them.",
+            "Use search_clauses / draft_clause for clause work (the firm's own curated library). To deliver a draft as " +
+            "work product, chain the tools: draft_clause, then generate_pdf with the drafted text, then " +
+            "attach_document_to_matter with the returned file id. When reviewing a contract, first call get_playbook " +
+            "and check the document against every rule, citing the file for each finding. Always make clear that " +
+            "output is a starting template, not legal advice, and recommend review by a licensed attorney. Never " +
+            "invent statutes, case citations, or jurisdiction-specific rules; if asked for those, say a qualified " +
+            "lawyer must confirm them.",
         SuggestedPrompts =
         [
             "List my matters",
@@ -88,6 +95,12 @@ public sealed class LegalModule : IModule
                 Description = "List a matter's attached documents with their file ids.",
                 Permission = Permissions.ForTool(Id, "list_matter_documents"),
             },
+            new ToolDescriptor
+            {
+                Name = "get_playbook",
+                Description = "Get the firm's contract-review playbook rules with severity.",
+                Permission = Permissions.ForTool(Id, "get_playbook"),
+            },
         ],
         Tabs =
         [
@@ -110,12 +123,19 @@ public sealed class LegalModule : IModule
                 DataEndpoint = "/api/legal/clauses",
                 Columns = [new("title", "Clause"), new("category", "Category"), new("summary", "Summary")],
             },
+            new TabDescriptor
+            {
+                Id = "playbook", Label = "Playbook", Route = "/legal/playbook", Icon = "shield-check", Order = 3,
+                Permission = ViewClauses,
+                DataEndpoint = "/api/legal/playbook",
+                Columns = [new("severity", "Severity"), new("title", "Rule"), new("guidance", "Guidance")],
+            },
         ],
     };
 
     public void RegisterServices(IServiceCollection services, IConfiguration configuration)
     {
-        services.AddSingleton<LegalTools>();
+        services.AddScoped<LegalTools>();
         services.AddScoped<MatterTools>();
         services.AddSingleton<IModuleToolSource, LegalToolSource>();
 
@@ -130,20 +150,165 @@ public sealed class LegalModule : IModule
         await db.Database.MigrateAsync(cancellationToken);
     }
 
+    /// <summary>
+    /// Seeds the tenant's clause library and playbook from the built-in defaults, so drafting and
+    /// review work out of the box. Tenant-owned data: only seeds when an ambient tenant is present
+    /// (the dev tenant in Development), and only into an empty library — a firm's curation is never
+    /// overwritten.
+    /// </summary>
+    public async Task SeedAsync(IServiceProvider services, CancellationToken cancellationToken = default)
+    {
+        var tenant = services.GetRequiredService<Cortex.Core.Multitenancy.ITenantContext>();
+        if (!tenant.HasTenant)
+        {
+            return;
+        }
+
+        var db = services.GetRequiredService<LegalDbContext>();
+        var tenantId = tenant.RequireTenantId();
+
+        if (!await db.Clauses.AnyAsync(cancellationToken))
+        {
+            foreach (var clause in LegalCatalog.Clauses)
+            {
+                db.Clauses.Add(new TenantClause
+                {
+                    TenantId = tenantId,
+                    Slug = clause.Id,
+                    Title = clause.Title,
+                    Category = clause.Category,
+                    Summary = clause.Summary,
+                    Template = clause.Template,
+                });
+            }
+        }
+
+        if (!await db.PlaybookRules.AnyAsync(cancellationToken))
+        {
+            foreach (var (title, guidance, severity) in LegalCatalog.DefaultPlaybook)
+            {
+                db.PlaybookRules.Add(new PlaybookRule
+                {
+                    TenantId = tenantId,
+                    Title = title,
+                    Guidance = guidance,
+                    Severity = severity,
+                });
+            }
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
     public void MapEndpoints(IEndpointRouteBuilder endpoints)
     {
         var group = endpoints.MapGroup("/api/legal").WithTags("Legal").RequireAuthorization();
 
-        // The clause library (reference data, not tenant-scoped).
-        group.MapGet("/clauses", (string? query) =>
+        // The tenant's clause library (seeded from defaults, curated by the firm).
+        group.MapGet("/clauses", async (string? query, LegalDbContext db, CancellationToken cancellationToken) =>
             {
-                var clauses = string.IsNullOrWhiteSpace(query)
-                    ? LegalCatalog.Clauses
-                    : [.. LegalCatalog.Search(query)];
-                return Results.Ok(clauses);
+                var clauses = await db.Clauses.OrderBy(c => c.Title).Take(500).ToListAsync(cancellationToken);
+                var selected = string.IsNullOrWhiteSpace(query)
+                    ? clauses
+                    : LegalCatalog.Search(clauses, query, c => [c.Title, c.Category, c.Summary, c.Slug]);
+                return Results.Ok(selected.Select(c => new ClauseDto(c.Id, c.Slug, c.Title, c.Category, c.Summary)));
             })
             .RequireAuthorization(PermissionRequirement.PolicyName(ViewClauses))
             .WithName("Legal_GetClauses");
+
+        // Curate the clause library.
+        group.MapPost("/clauses", async (
+                UpsertClauseRequest body, LegalDbContext db,
+                Cortex.Core.Multitenancy.ITenantContext tenant, CancellationToken cancellationToken) =>
+            {
+                var existing = await db.Clauses.FirstOrDefaultAsync(c => c.Slug == body.Slug, cancellationToken);
+                if (existing is null)
+                {
+                    existing = new TenantClause
+                    {
+                        TenantId = tenant.RequireTenantId(),
+                        Slug = body.Slug,
+                        Title = body.Title,
+                        Category = body.Category,
+                        Summary = body.Summary,
+                        Template = body.Template,
+                    };
+                    db.Clauses.Add(existing);
+                }
+                else
+                {
+                    existing.Title = body.Title;
+                    existing.Category = body.Category;
+                    existing.Summary = body.Summary;
+                    existing.Template = body.Template;
+                }
+
+                await db.SaveChangesAsync(cancellationToken);
+                return Results.Ok(new ClauseDto(existing.Id, existing.Slug, existing.Title, existing.Category, existing.Summary));
+            })
+            .RequireAuthorization(PermissionRequirement.PolicyName(ManageLibrary))
+            .WithName("Legal_UpsertClause");
+
+        group.MapDelete("/clauses/{slug}", async (string slug, LegalDbContext db, CancellationToken cancellationToken) =>
+            {
+                var clause = await db.Clauses.FirstOrDefaultAsync(c => c.Slug == slug, cancellationToken);
+                if (clause is null)
+                {
+                    return Results.NotFound();
+                }
+
+                db.Clauses.Remove(clause);
+                await db.SaveChangesAsync(cancellationToken);
+                return Results.NoContent();
+            })
+            .RequireAuthorization(PermissionRequirement.PolicyName(ManageLibrary))
+            .WithName("Legal_DeleteClause");
+
+        // The firm playbook — drives the Playbook tab and the get_playbook tool.
+        group.MapGet("/playbook", async (LegalDbContext db, CancellationToken cancellationToken) =>
+            {
+                // Severity persists as a string (readable rows) — order in memory where enum order applies.
+                var rules = (await db.PlaybookRules.ToListAsync(cancellationToken))
+                    .OrderByDescending(r => r.Severity)
+                    .ThenBy(r => r.Title, StringComparer.OrdinalIgnoreCase)
+                    .Select(r => new PlaybookRuleDto(r.Id, r.Severity.ToString(), r.Title, r.Guidance));
+                return Results.Ok(rules);
+            })
+            .RequireAuthorization(PermissionRequirement.PolicyName(ViewClauses))
+            .WithName("Legal_GetPlaybook");
+
+        group.MapPost("/playbook", async (
+                UpsertPlaybookRuleRequest body, LegalDbContext db,
+                Cortex.Core.Multitenancy.ITenantContext tenant, CancellationToken cancellationToken) =>
+            {
+                var rule = new PlaybookRule
+                {
+                    TenantId = tenant.RequireTenantId(),
+                    Title = body.Title,
+                    Guidance = body.Guidance,
+                    Severity = body.Severity,
+                };
+                db.PlaybookRules.Add(rule);
+                await db.SaveChangesAsync(cancellationToken);
+                return Results.Created($"/api/legal/playbook/{rule.Id}", new PlaybookRuleDto(rule.Id, rule.Severity.ToString(), rule.Title, rule.Guidance));
+            })
+            .RequireAuthorization(PermissionRequirement.PolicyName(ManageLibrary))
+            .WithName("Legal_AddPlaybookRule");
+
+        group.MapDelete("/playbook/{id:guid}", async (Guid id, LegalDbContext db, CancellationToken cancellationToken) =>
+            {
+                var rule = await db.PlaybookRules.FirstOrDefaultAsync(r => r.Id == id, cancellationToken);
+                if (rule is null)
+                {
+                    return Results.NotFound();
+                }
+
+                db.PlaybookRules.Remove(rule);
+                await db.SaveChangesAsync(cancellationToken);
+                return Results.NoContent();
+            })
+            .RequireAuthorization(PermissionRequirement.PolicyName(ManageLibrary))
+            .WithName("Legal_DeletePlaybookRule");
 
         // The tenant's matters — drives the Matters tab (query filter scopes rows to the tenant).
         group.MapGet("/matters", async (LegalDbContext db, CancellationToken cancellationToken) =>
@@ -184,4 +349,14 @@ public sealed class LegalModule : IModule
     private sealed record MatterDto(Guid Id, string Name, string? ClientName, string Status, int DocumentCount, DateOnly CreatedAt);
 
     private sealed record MatterDocumentDto(Guid FileId, string FileName, string? Note, DateTimeOffset AttachedAt);
+
+    private sealed record ClauseDto(Guid Id, string Slug, string Title, string Category, string Summary);
+
+    /// <summary>Create or update a clause in the firm's library (matched by slug).</summary>
+    public sealed record UpsertClauseRequest(string Slug, string Title, string Category, string Summary, string Template);
+
+    private sealed record PlaybookRuleDto(Guid Id, string Severity, string Title, string Guidance);
+
+    /// <summary>Add a rule to the firm's contract-review playbook.</summary>
+    public sealed record UpsertPlaybookRuleRequest(string Title, string Guidance, RuleSeverity Severity = RuleSeverity.Caution);
 }

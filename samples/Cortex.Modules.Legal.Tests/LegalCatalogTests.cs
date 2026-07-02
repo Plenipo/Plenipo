@@ -42,20 +42,16 @@ public sealed class LegalCatalogTests
         Assert.Contains("Party B", rendered.Body, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public void DraftClause_UnknownType_AsksToSearchFirst()
-    {
-        var result = new LegalTools().DraftClause("teleportation rights", "A", "B");
-        Assert.Contains("search_clauses", result, StringComparison.Ordinal);
-    }
+    // DraftClause / SearchClauses became DB-backed (the tenant's curated library) — their behavior
+    // is covered end-to-end in Cortex.Sample.Host.IntegrationTests.LegalLibraryTests.
 
     [Fact]
-    public void DraftClause_KnownType_RendersWithDisclaimer()
+    public void DefaultPlaybook_HasRulesAtEverySeverity()
     {
-        var result = new LegalTools().DraftClause("termination", "Acme Corp", "Beta LLC");
-
-        Assert.Contains("Acme Corp", result, StringComparison.Ordinal);
-        Assert.Contains("not legal advice", result, StringComparison.OrdinalIgnoreCase);
+        var severities = LegalCatalog.DefaultPlaybook.Select(r => r.Severity).Distinct().ToList();
+        Assert.Contains(Persistence.RuleSeverity.Critical, severities);
+        Assert.Contains(Persistence.RuleSeverity.Caution, severities);
+        Assert.Contains(Persistence.RuleSeverity.Info, severities);
     }
 
     [Fact]
@@ -65,7 +61,7 @@ public sealed class LegalCatalogTests
 
         Assert.Equal("legal", manifest.Id);
         Assert.Equal(
-            ["search_clauses", "draft_clause", "create_matter", "list_matters", "attach_document_to_matter", "list_matter_documents"],
+            ["search_clauses", "draft_clause", "create_matter", "list_matters", "attach_document_to_matter", "list_matter_documents", "get_playbook"],
             manifest.Tools.Select(t => t.Name));
 
         // The side-effecting matter tools are held for human approval; the read tools are not.
