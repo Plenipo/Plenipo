@@ -48,10 +48,14 @@ public sealed class LegalModule : IModule
             "output is a starting template, not legal advice, and recommend review by a licensed attorney. Never " +
             "invent statutes, case citations, or jurisdiction-specific rules; if asked for those, say a qualified " +
             "lawyer must confirm them.",
+        // Guided workflows (v1 item 8): each starter drives a packaged multi-step chain the
+        // instructions prescribe — review-against-playbook, draft-and-file, matter Q&A with citations.
         SuggestedPrompts =
         [
             "List my matters",
-            "Draft a confidentiality clause",
+            "Review the attached contract against our playbook and file the memo on the matter",
+            "Draft an NDA between our client and the counterparty, and file it on the matter",
+            "Summarize the documents on a matter, citing each file",
             "Search the clause library for indemnification",
         ],
         Roles = ["legal:user", "legal:admin"],

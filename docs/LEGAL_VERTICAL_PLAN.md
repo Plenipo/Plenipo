@@ -2,6 +2,24 @@
 
 Derived from [research/legal-ai.md](../research/legal-ai.md) (Harvey + competitor analysis).
 
+## Status (2026-07-02)
+
+| Item | Status |
+|------|--------|
+| 1. Matter entity + live Matters tab | ✅ shipped (`7ca111f`) |
+| 2. attach_document_to_matter | ✅ shipped (`7ca111f`) |
+| 3. Matter Q&A with citations | ✅ instruction-enforced; citation round-trip pinned by the review-chain test |
+| 4. Tenant clause library + playbook | ✅ shipped (`90fedfa`) |
+| 5. Drafting to work product | ✅ chain prescribed + tested (`90fedfa`) |
+| 6. Playbook contract review | ✅ chain prescribed + full-path test (LegalReviewTests) |
+| 7. Bulk review table | ⬜ needs the background-job platform primitive — next major chunk |
+| 8. Guided workflows | ✅ starter prompts drive the packaged chains |
+| 9. WhatsApp client intake | ✅ channel binds to legal per tenant; intake E2E test (WhatsAppLegalIntakeTests) |
+| 10. Matter-level ACLs (ethical walls) | ⬜ per-resource ACL seam completion — with item 7 |
+
+Pending user decisions: **product name** (EnBanc vs AdLitem, below) and **repo extraction timing**
+(recommended: at first tagged release — see Repo strategy).
+
 ## v1 scope (build order)
 
 1. **Matter entity + live Matters workspace tab (create/list matters; retire the placeholder tab)** _(effort: medium)_
