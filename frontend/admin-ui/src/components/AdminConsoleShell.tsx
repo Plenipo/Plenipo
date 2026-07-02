@@ -1,4 +1,4 @@
-import { useMe } from "@cortex/ui";
+import { ThemeToggle, useMe } from "@cortex/ui";
 import { AdminPage } from "../admin/AdminPage";
 
 /** True if the caller holds any platform-administration permission (or the global wildcard). */
@@ -50,8 +50,11 @@ export function AdminConsoleShell() {
           ← Workspace
         </a>
 
-        <div className="ml-auto text-sm text-slate-600 dark:text-slate-300">
-          {me?.displayName ?? "…"}
+        <div className="ml-auto flex items-center gap-2">
+          <ThemeToggle />
+          <div className="text-sm text-slate-600 dark:text-slate-300">
+            {me?.displayName ?? "…"}
+          </div>
         </div>
       </header>
 

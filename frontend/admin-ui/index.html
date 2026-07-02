@@ -4,6 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Cortex Admin</title>
+    <!-- Apply the stored theme before the bundle loads so a dark-mode reload never flashes light.
+         Keep in sync with src/lib/theme.ts (@cortex/ui). -->
+    <script>
+      try {
+        var t = localStorage.getItem("cortex.theme");
+        if (t === "dark" || ((t === null || t === "system") && matchMedia("(prefers-color-scheme: dark)").matches))
+          document.documentElement.classList.add("dark");
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

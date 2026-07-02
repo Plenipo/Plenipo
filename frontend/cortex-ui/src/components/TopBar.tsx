@@ -2,6 +2,7 @@ import { NavLink } from "react-router-dom";
 import { useMe } from "../hooks/useMe";
 import { useBranding } from "../lib/branding";
 import { ModuleSwitcher } from "./ModuleSwitcher";
+import { ThemeToggle } from "./ThemeToggle";
 
 /** True if the caller holds any platform-administration permission (or the global wildcard). */
 function canAdminister(permissions: string[]): boolean {
@@ -86,8 +87,11 @@ export function TopBar({ onToggleSidebar, sidebarOpen = false }: TopBarProps = {
         )}
       </nav>
 
-      <div className="ml-auto hidden text-sm text-slate-600 sm:block dark:text-slate-300">
-        {me?.displayName ?? "…"}
+      <div className="ml-auto flex items-center gap-2">
+        <ThemeToggle />
+        <div className="hidden text-sm text-slate-600 sm:block dark:text-slate-300">
+          {me?.displayName ?? "…"}
+        </div>
       </div>
     </header>
   );

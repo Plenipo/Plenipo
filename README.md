@@ -238,8 +238,9 @@ stays consistent** across every Cortex deployment:
   lower-level `AppShell`), a **client-side module registry** (`defineModule` — register your own React pages per
   module tab, with a server-driven generic fallback), the chat shell, RBAC primitives (`usePermission`,
   `PermissionGate`), typed API errors (`ApiError`), the API/AG-UI/SignalR clients (`api`, `useMe`, hooks, types),
-  and **theming + branding** (a `--cortex-brand-*` CSS-variable accent + a `branding` prop for the product
-  name/logo). A product brands and composes it; the base library carries no vertical-specific and no admin code.
+  and **theming + branding** (a `--cortex-brand-*` CSS-variable accent, a `branding` prop for the product
+  name/logo, and **dark mode** — a persisted light/dark/system `ThemeToggle` ships in both app headers).
+  A product brands and composes it; the base library carries no vertical-specific and no admin code.
 - **`@cortex/admin-ui`** (`frontend/admin-ui`) — the **admin console**, a standalone app (not a library) that
   owns the Security / Users & Roles / Token Usage / Audit views. It reuses `@cortex/ui`'s client layer for API
   access and is served at `/admin` (by its own Vite dev server, or by the API host via
