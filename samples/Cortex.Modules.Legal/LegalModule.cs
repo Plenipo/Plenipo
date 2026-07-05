@@ -31,8 +31,8 @@ public sealed class LegalModule : IModule
     {
         Id = Id,
         DisplayName = "Legal",
-        Version = "1.3.0",
-        Description = "Matter-centric legal assistant. Organize case documents into matters, search a clause library, and draft clauses for review.",
+        Version = "1.4.0",
+        Description = "Matter-centric legal assistant. Organize case documents into matters, docket deadlines with reminders, search a clause library, and draft clauses for review.",
         Icon = "scale",
         AgentInstructions =
             "You are Cortex's legal assistant, organized around MATTERS (engagement workspaces). " +
@@ -47,7 +47,11 @@ public sealed class LegalModule : IModule
             "Use search_clauses / draft_clause for clause work (the firm's own curated library). To deliver a draft as " +
             "work product, chain the tools: draft_clause, then generate_pdf with the drafted text, then " +
             "attach_document_to_matter with the returned file id. When reviewing a contract, first call get_playbook " +
-            "and check the document against every rule, citing the file for each finding. Always make clear that " +
+            "and check the document against every rule, citing the file for each finding. " +
+            "DOCKETING: when the user mentions a court date, filing deadline, or limitation period, offer to docket " +
+            "it with add_deadline (matter, title, ISO due date); use list_deadlines to answer 'what's coming up' and " +
+            "complete_deadline when something is done. Deadlines drive reminder notifications — never rely on memory. " +
+            "Always make clear that " +
             "output is a starting template, not legal advice, and recommend review by a licensed attorney. Never " +
             "invent statutes, case citations, or jurisdiction-specific rules; if asked for those, say a qualified " +
             "lawyer must confirm them.",
@@ -56,6 +60,7 @@ public sealed class LegalModule : IModule
         SuggestedPrompts =
         [
             "List my matters",
+            "What deadlines are coming up?",
             "Review the attached contract against our playbook and file the memo on the matter",
             "Draft an NDA between our client and the counterparty, and file it on the matter",
             "Summarize the documents on a matter, citing each file",
@@ -124,6 +129,26 @@ public sealed class LegalModule : IModule
             },
             new ToolDescriptor
             {
+                Name = "add_deadline",
+                Description = "Docket a deadline on a matter (court date, filing deadline, limitation period); a reminder fires before it is due. Side-effecting: writes data and requires human approval.",
+                Permission = Permissions.ForTool(Id, "add_deadline"),
+                RequiresApproval = true,
+            },
+            new ToolDescriptor
+            {
+                Name = "list_deadlines",
+                Description = "List upcoming deadlines soonest-first, across all matters or for one matter; overdue items are flagged.",
+                Permission = Permissions.ForTool(Id, "list_deadlines"),
+            },
+            new ToolDescriptor
+            {
+                Name = "complete_deadline",
+                Description = "Mark a docketed deadline as completed. Side-effecting: writes data and requires human approval.",
+                Permission = Permissions.ForTool(Id, "complete_deadline"),
+                RequiresApproval = true,
+            },
+            new ToolDescriptor
+            {
                 Name = "restrict_matter_access",
                 Description = "Put a matter behind an ethical wall (only the caller keeps access). Side-effecting and requires human approval.",
                 Permission = Permissions.ForTool(Id, "restrict_matter_access"),
@@ -167,14 +192,25 @@ public sealed class LegalModule : IModule
             },
             new TabDescriptor
             {
-                Id = "clauses", Label = "Clauses", Route = "/legal/clauses", Icon = "file-text", Order = 2,
+                Id = "deadlines", Label = "Deadlines", Route = "/legal/deadlines", Icon = "calendar-clock", Order = 2,
+                Permission = ViewMatters,
+                DataEndpoint = "/api/legal/deadlines",
+                Columns =
+                [
+                    new("dueAt", "Due"), new("title", "Deadline"), new("matterName", "Matter"),
+                    new("status", "Status"), new("notes", "Notes"),
+                ],
+            },
+            new TabDescriptor
+            {
+                Id = "clauses", Label = "Clauses", Route = "/legal/clauses", Icon = "file-text", Order = 3,
                 Permission = ViewClauses,
                 DataEndpoint = "/api/legal/clauses",
                 Columns = [new("title", "Clause"), new("category", "Category"), new("summary", "Summary")],
             },
             new TabDescriptor
             {
-                Id = "playbook", Label = "Playbook", Route = "/legal/playbook", Icon = "shield-check", Order = 3,
+                Id = "playbook", Label = "Playbook", Route = "/legal/playbook", Icon = "shield-check", Order = 4,
                 Permission = ViewClauses,
                 DataEndpoint = "/api/legal/playbook",
                 Columns = [new("severity", "Severity"), new("title", "Rule"), new("guidance", "Guidance")],
@@ -196,6 +232,9 @@ public sealed class LegalModule : IModule
         // Connector sync lands here: synced files attach to the bound matter and index into its
         // knowledge collection (the connect_matter_folder / sync_matter_folder chain).
         services.AddScoped<Cortex.Application.Connectors.IConnectorSyncHandler, MatterSyncHandler>();
+
+        // Docketing reminders: one notification per deadline as its window opens (inbox + channels).
+        services.AddHostedService<DeadlineReminderService>();
 
         // The module owns its data under the 'legal' schema of the platform database.
         services.AddDbContext<LegalDbContext>(options =>
@@ -391,6 +430,35 @@ public sealed class LegalModule : IModule
             .RequireAuthorization(PermissionRequirement.PolicyName(ViewMatters))
             .WithName("Legal_GetMatters");
 
+        // Upcoming deadlines across the tenant's matters — drives the Deadlines tab. Open items
+        // soonest-first, then recently completed ones; walled matters keep their dates invisible.
+        group.MapGet("/deadlines", async (
+                LegalDbContext db, Cortex.Core.Identity.ICurrentUser current, CancellationToken cancellationToken) =>
+            {
+                var now = DateTimeOffset.UtcNow;
+                var rows = (await db.MatterDeadlines
+                        .OrderBy(d => d.CompletedAt != null) // open first
+                        .ThenBy(d => d.DueAt)
+                        .Take(200)
+                        .Join(db.Matters, d => d.MatterId, m => m.Id, (d, m) => new
+                        {
+                            d.Id, d.Title, d.DueAt, d.Notes, d.CompletedAt,
+                            MatterName = m.Name, m.RestrictedUserIdsJson,
+                        })
+                        .ToListAsync(cancellationToken))
+                    .Where(d => Matter.WallAllows(d.RestrictedUserIdsJson, current.UserId))
+                    .Select(d => new DeadlineDto(
+                        d.Id,
+                        DateOnly.FromDateTime(d.DueAt.UtcDateTime),
+                        d.Title,
+                        d.MatterName,
+                        d.CompletedAt is not null ? "Completed" : d.DueAt < now ? "OVERDUE" : d.DueAt <= now.AddDays(7) ? "Due soon" : "Open",
+                        d.Notes));
+                return Results.Ok(rows);
+            })
+            .RequireAuthorization(PermissionRequirement.PolicyName(ViewMatters))
+            .WithName("Legal_GetDeadlines");
+
         // A matter's attached documents (file ids resolve against /api/files/{id}). Outside the
         // wall, the matter 404s — indistinguishable from missing, like cross-tenant ids.
         group.MapGet("/matters/{matterId:guid}/documents", async (
@@ -415,6 +483,8 @@ public sealed class LegalModule : IModule
     }
 
     private sealed record MatterDto(Guid Id, string Name, string? ClientName, string Status, int DocumentCount, DateOnly CreatedAt);
+
+    private sealed record DeadlineDto(Guid Id, DateOnly DueAt, string Title, string MatterName, string Status, string? Notes);
 
     private sealed record MatterDocumentDto(Guid FileId, string FileName, string? Note, DateTimeOffset AttachedAt);
 

@@ -325,6 +325,119 @@ public sealed class MatterTools(
         return sb.ToString();
     }
 
+    [Description("Docket a deadline on a matter: a court date, filing deadline, or limitation period. A reminder notification fires ahead of the due date.")]
+    public async Task<string> AddDeadline(
+        [Description("The matter name to docket the deadline on.")] string matterName,
+        [Description("What is due, e.g. 'Answer to complaint' or 'Discovery cutoff'.")] string title,
+        [Description("When it is due — an ISO date or date-time, e.g. 2026-08-14 or 2026-08-14T17:00Z.")] string dueDate,
+        [Description("Optional notes (court, judge, rule reference).")] string? notes = null,
+        [Description("Days before the due date to send the reminder (default 3).")] int remindDaysBefore = 3,
+        CancellationToken cancellationToken = default)
+    {
+        var matter = await FindMatterAsync(matterName, cancellationToken);
+        if (matter is null)
+        {
+            return $"No matter named '{matterName}' exists. Use list_matters to find the right name.";
+        }
+
+        if (!DateTimeOffset.TryParse(dueDate, System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.AssumeUniversal, out var dueAt))
+        {
+            return $"'{dueDate}' is not a date I can parse — use an ISO date like 2026-08-14 (optionally with a time).";
+        }
+
+        db.MatterDeadlines.Add(new MatterDeadline
+        {
+            TenantId = tenant.RequireTenantId(),
+            MatterId = matter.Id,
+            Title = title.Trim(),
+            DueAt = dueAt,
+            Notes = string.IsNullOrWhiteSpace(notes) ? null : notes.Trim(),
+            OwnerUserId = currentUser.UserId,
+            ReminderDaysBefore = Math.Clamp(remindDaysBefore, 0, 90),
+        });
+        await db.SaveChangesAsync(cancellationToken);
+
+        return $"Docketed '{title.Trim()}' on matter '{matter.Name}', due {dueAt:yyyy-MM-dd}. " +
+               $"A reminder will be sent {Math.Clamp(remindDaysBefore, 0, 90)} day(s) before.";
+    }
+
+    [Description("List upcoming deadlines — across all matters, or for one matter. Soonest first; overdue items are flagged.")]
+    public async Task<string> ListDeadlines(
+        [Description("Optional matter name to filter to; omit for all matters.")] string? matterName = null,
+        CancellationToken cancellationToken = default)
+    {
+        Matter? matter = null;
+        if (!string.IsNullOrWhiteSpace(matterName))
+        {
+            matter = await FindMatterAsync(matterName, cancellationToken);
+            if (matter is null)
+            {
+                return $"No matter named '{matterName}' exists. Use list_matters to find the right name.";
+            }
+        }
+
+        var query = db.MatterDeadlines.Where(d => d.CompletedAt == null);
+        if (matter is not null)
+        {
+            query = query.Where(d => d.MatterId == matter.Id);
+        }
+
+        var deadlines = await query
+            .OrderBy(d => d.DueAt)
+            .Take(50)
+            .Join(db.Matters, d => d.MatterId, m => m.Id,
+                (d, m) => new { d.Title, d.DueAt, d.Notes, MatterName = m.Name, m.RestrictedUserIdsJson })
+            .ToListAsync(cancellationToken);
+
+        // Walled matters keep their dates invisible to outsiders, like every other matter surface.
+        var visible = deadlines.Where(d => Matter.WallAllows(d.RestrictedUserIdsJson, currentUser.UserId)).ToList();
+        if (visible.Count == 0)
+        {
+            return matter is null
+                ? "No open deadlines are docketed. Add one with add_deadline."
+                : $"Matter '{matter.Name}' has no open deadlines. Add one with add_deadline.";
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var sb = new StringBuilder("Open deadlines (soonest first):\n");
+        foreach (var d in visible)
+        {
+            var days = (int)Math.Ceiling((d.DueAt - now).TotalDays);
+            var when = days < 0 ? $"OVERDUE by {-days} day(s)" : days == 0 ? "due TODAY" : $"in {days} day(s)";
+            sb.AppendLine($"- {d.DueAt:yyyy-MM-dd} · {d.Title} — matter '{d.MatterName}' ({when})" +
+                          (d.Notes is null ? "" : $" — {d.Notes}"));
+        }
+
+        return sb.ToString();
+    }
+
+    [Description("Mark a docketed deadline as completed so it leaves the upcoming list and stops reminding.")]
+    public async Task<string> CompleteDeadline(
+        [Description("The matter name the deadline is on.")] string matterName,
+        [Description("The deadline title (as shown by list_deadlines).")] string title,
+        CancellationToken cancellationToken = default)
+    {
+        var matter = await FindMatterAsync(matterName, cancellationToken);
+        if (matter is null)
+        {
+            return $"No matter named '{matterName}' exists. Use list_matters to find the right name.";
+        }
+
+        var normalized = title.Trim();
+        var deadline = await db.MatterDeadlines.FirstOrDefaultAsync(
+            d => d.MatterId == matter.Id && d.CompletedAt == null && EF.Functions.ILike(d.Title, normalized),
+            cancellationToken);
+        if (deadline is null)
+        {
+            return $"No open deadline titled '{normalized}' on matter '{matter.Name}'. Check list_deadlines for the exact title.";
+        }
+
+        deadline.CompletedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(cancellationToken);
+        return $"Marked '{deadline.Title}' on matter '{matter.Name}' as completed.";
+    }
+
     private async Task<Matter?> FindMatterAsync(string name, CancellationToken cancellationToken)
     {
         var normalized = name.Trim();

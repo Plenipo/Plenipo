@@ -18,6 +18,7 @@ public sealed class LegalDbContext(
 
     public DbSet<Matter> Matters => Set<Matter>();
     public DbSet<MatterDocument> MatterDocuments => Set<MatterDocument>();
+    public DbSet<MatterDeadline> MatterDeadlines => Set<MatterDeadline>();
     public DbSet<TenantClause> Clauses => Set<TenantClause>();
     public DbSet<PlaybookRule> PlaybookRules => Set<PlaybookRule>();
 
@@ -45,6 +46,19 @@ public sealed class LegalDbContext(
             b.Property(x => x.Note).HasMaxLength(500);
             b.HasIndex(x => x.MatterId);
             b.HasIndex(x => new { x.MatterId, x.FileId }).IsUnique(); // a file attaches to a matter once
+            b.HasQueryFilter(x => x.TenantId == tenantContext.TenantId);
+        });
+
+        modelBuilder.Entity<MatterDeadline>(b =>
+        {
+            b.ToTable("matter_deadlines");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Title).HasMaxLength(300).IsRequired();
+            b.Property(x => x.Notes).HasMaxLength(1000);
+            b.HasIndex(x => x.MatterId);
+            // The reminder scanner's shape: open, un-reminded deadlines by due date, across tenants.
+            b.HasIndex(x => x.DueAt).HasFilter("\"CompletedAt\" IS NULL AND \"ReminderSentAt\" IS NULL");
+            b.HasOne<Matter>().WithMany().HasForeignKey(x => x.MatterId).OnDelete(DeleteBehavior.Cascade);
             b.HasQueryFilter(x => x.TenantId == tenantContext.TenantId);
         });
 

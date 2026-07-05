@@ -17,6 +17,16 @@ Derived from [research/legal-ai.md](../research/legal-ai.md) (Harvey + competito
 | 9. WhatsApp client intake | ✅ channel binds to legal per tenant; intake E2E test (WhatsAppLegalIntakeTests) |
 | 10. Matter-level ACLs (ethical walls) | ✅ shipped with the RAG core — `restrict_matter_access` / `open_matter_access` tools; a walled matter is invisible in every matter tool, both tabs endpoints, AND its knowledge collection (`MatterRagGate`, fail closed) |
 
+## v2 - daily-practice usability ("a real lawyer shop would use this")
+
+| Item | Status |
+|------|--------|
+| 11. **Docketing**: matter deadlines with reminders - add_deadline / list_deadlines / complete_deadline tools, Deadlines tab (soonest-first, overdue flagged), DeadlineReminderService produces one inbox notification per deadline as its window opens (wall-respecting; latch = ReminderSentAt) | done |
+| 12. Conflict-of-interest check: parties/adverse parties on matters + a check at intake | next |
+| 13. Time tracking: billable entries per matter (start from chat: "log 0.5h on Acme") | todo |
+| 14. Matter tasks: to-dos with owners, surfaced beside deadlines | todo |
+| 15. Engagement-letter intake flow: new client -> conflict check -> matter + engagement letter drafted and filed | todo |
+
 Pending user decisions: **product name** (EnBanc vs AdLitem, below) and **repo extraction timing**
 (recommended: at first tagged release — see Repo strategy).
 
