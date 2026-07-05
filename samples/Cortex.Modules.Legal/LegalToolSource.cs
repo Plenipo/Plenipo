@@ -177,6 +177,29 @@ public sealed class LegalToolSource : IModuleToolSource
                 Permission = Permissions.ForTool(ModuleId, "list_time"),
                 Function = AIFunctionFactory.Create(matters.ListTime, name: "list_time"),
             },
+            new ModuleTool
+            {
+                ModuleId = ModuleId,
+                Name = "add_task",
+                Permission = Permissions.ForTool(ModuleId, "add_task"),
+                Function = AIFunctionFactory.Create(matters.AddTask, name: "add_task"),
+                RequiresApproval = true,
+            },
+            new ModuleTool
+            {
+                ModuleId = ModuleId,
+                Name = "list_tasks",
+                Permission = Permissions.ForTool(ModuleId, "list_tasks"),
+                Function = AIFunctionFactory.Create(matters.ListTasks, name: "list_tasks"),
+            },
+            new ModuleTool
+            {
+                ModuleId = ModuleId,
+                Name = "complete_task",
+                Permission = Permissions.ForTool(ModuleId, "complete_task"),
+                Function = AIFunctionFactory.Create(matters.CompleteTask, name: "complete_task"),
+                RequiresApproval = true,
+            },
         ];
     }
 }

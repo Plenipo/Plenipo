@@ -31,8 +31,8 @@ public sealed class LegalModule : IModule
     {
         Id = Id,
         DisplayName = "Legal",
-        Version = "1.6.0",
-        Description = "Matter-centric legal assistant. Organize case documents into matters, docket deadlines with reminders, run conflict checks at intake, track billable time, search a clause library, and draft clauses for review.",
+        Version = "1.7.0",
+        Description = "Matter-centric legal assistant. Organize case documents into matters, docket deadlines with reminders, run conflict checks at intake, track billable time, manage matter tasks, search a clause library, and draft clauses for review.",
         Icon = "scale",
         AgentInstructions =
             "You are Cortex's legal assistant, organized around MATTERS (engagement workspaces). " +
@@ -56,6 +56,8 @@ public sealed class LegalModule : IModule
             "(client / adverse / related) as they emerge — the conflict check is only as good as the recorded parties. " +
             "TIME: when the user mentions work done ('spent an hour on', 'log 0.5h'), capture it immediately with " +
             "log_time (matter, hours, narrative description); answer 'what did I work on' with list_time. " +
+            "TASKS: track to-dos with add_task (matter, title, optional assignee and target date), list_tasks, and " +
+            "complete_task; use tasks for work items and add_deadline for hard dates that must remind. " +
             "Always make clear that " +
             "output is a starting template, not legal advice, and recommend review by a licensed attorney. Never " +
             "invent statutes, case citations, or jurisdiction-specific rules; if asked for those, say a qualified " +
@@ -186,6 +188,26 @@ public sealed class LegalModule : IModule
             },
             new ToolDescriptor
             {
+                Name = "add_task",
+                Description = "Add a task (to-do) on a matter, optionally assigned by name with a target date. Side-effecting: writes data and requires human approval.",
+                Permission = Permissions.ForTool(Id, "add_task"),
+                RequiresApproval = true,
+            },
+            new ToolDescriptor
+            {
+                Name = "list_tasks",
+                Description = "List open tasks across all matters or for one matter (dated tasks first).",
+                Permission = Permissions.ForTool(Id, "list_tasks"),
+            },
+            new ToolDescriptor
+            {
+                Name = "complete_task",
+                Description = "Mark a matter task as completed. Side-effecting: writes data and requires human approval.",
+                Permission = Permissions.ForTool(Id, "complete_task"),
+                RequiresApproval = true,
+            },
+            new ToolDescriptor
+            {
                 Name = "restrict_matter_access",
                 Description = "Put a matter behind an ethical wall (only the caller keeps access). Side-effecting and requires human approval.",
                 Permission = Permissions.ForTool(Id, "restrict_matter_access"),
@@ -240,7 +262,18 @@ public sealed class LegalModule : IModule
             },
             new TabDescriptor
             {
-                Id = "time", Label = "Time", Route = "/legal/time", Icon = "timer", Order = 3,
+                Id = "tasks", Label = "Tasks", Route = "/legal/tasks", Icon = "list-checks", Order = 3,
+                Permission = ViewMatters,
+                DataEndpoint = "/api/legal/tasks",
+                Columns =
+                [
+                    new("dueOn", "Target"), new("title", "Task"), new("matterName", "Matter"),
+                    new("assignedTo", "Assigned to"), new("status", "Status"), new("notes", "Notes"),
+                ],
+            },
+            new TabDescriptor
+            {
+                Id = "time", Label = "Time", Route = "/legal/time", Icon = "timer", Order = 4,
                 Permission = ViewMatters,
                 DataEndpoint = "/api/legal/time",
                 Columns =
@@ -251,14 +284,14 @@ public sealed class LegalModule : IModule
             },
             new TabDescriptor
             {
-                Id = "clauses", Label = "Clauses", Route = "/legal/clauses", Icon = "file-text", Order = 4,
+                Id = "clauses", Label = "Clauses", Route = "/legal/clauses", Icon = "file-text", Order = 5,
                 Permission = ViewClauses,
                 DataEndpoint = "/api/legal/clauses",
                 Columns = [new("title", "Clause"), new("category", "Category"), new("summary", "Summary")],
             },
             new TabDescriptor
             {
-                Id = "playbook", Label = "Playbook", Route = "/legal/playbook", Icon = "shield-check", Order = 5,
+                Id = "playbook", Label = "Playbook", Route = "/legal/playbook", Icon = "shield-check", Order = 6,
                 Permission = ViewClauses,
                 DataEndpoint = "/api/legal/playbook",
                 Columns = [new("severity", "Severity"), new("title", "Rule"), new("guidance", "Guidance")],
@@ -507,6 +540,31 @@ public sealed class LegalModule : IModule
             .RequireAuthorization(PermissionRequirement.PolicyName(ViewMatters))
             .WithName("Legal_GetDeadlines");
 
+        // Open tasks across the tenant's matters (then recently completed) — drives the Tasks tab.
+        group.MapGet("/tasks", async (
+                LegalDbContext db, Cortex.Core.Identity.ICurrentUser current, CancellationToken cancellationToken) =>
+            {
+                var rows = (await db.MatterTasks
+                        .OrderBy(t => t.CompletedAt != null) // open first
+                        .ThenBy(t => t.DueOn == null)        // dated first, soonest first
+                        .ThenBy(t => t.DueOn)
+                        .ThenBy(t => t.CreatedAt)
+                        .Take(200)
+                        .Join(db.Matters, t => t.MatterId, m => m.Id, (t, m) => new
+                        {
+                            t.Id, t.Title, t.AssignedTo, t.DueOn, t.Notes, t.CompletedAt,
+                            MatterName = m.Name, m.RestrictedUserIdsJson,
+                        })
+                        .ToListAsync(cancellationToken))
+                    .Where(t => Matter.WallAllows(t.RestrictedUserIdsJson, current.UserId))
+                    .Select(t => new MatterTaskDto(
+                        t.Id, t.DueOn, t.Title, t.MatterName, t.AssignedTo,
+                        t.CompletedAt is not null ? "Completed" : "Open", t.Notes));
+                return Results.Ok(rows);
+            })
+            .RequireAuthorization(PermissionRequirement.PolicyName(ViewMatters))
+            .WithName("Legal_GetTasks");
+
         // Recent time entries across the tenant's matters — drives the Time tab. Walled matters
         // keep their entries invisible to outsiders, like every other matter surface.
         group.MapGet("/time", async (
@@ -559,6 +617,8 @@ public sealed class LegalModule : IModule
     private sealed record DeadlineDto(Guid Id, DateOnly DueAt, string Title, string MatterName, string Status, string? Notes);
 
     private sealed record TimeEntryDto(Guid Id, DateOnly WorkedOn, string MatterName, decimal Hours, string Description, string? UserDisplay, string Billable);
+
+    private sealed record MatterTaskDto(Guid Id, DateOnly? DueOn, string Title, string MatterName, string? AssignedTo, string Status, string? Notes);
 
     private sealed record MatterDocumentDto(Guid FileId, string FileName, string? Note, DateTimeOffset AttachedAt);
 
