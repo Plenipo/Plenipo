@@ -37,6 +37,11 @@ public sealed class IntegrationFixture : IAsyncLifetime
     /// <summary>Canned media served to <see cref="WhatsAppFactory"/> in place of the Meta media API.</summary>
     public FakeWhatsAppMediaClient WhatsAppMedia { get; } = new();
 
+    /// <summary>The same app with the MCP pipeline on (a configured server activates it) and the tool
+    /// PROVIDER replaced by a deterministic stub — the whole RBAC/audit/approval path around MCP tools
+    /// is E2E-testable with no external server, npx, or network.</summary>
+    public WebApplicationFactory<Program> McpFactory { get; private set; } = default!;
+
     public async Task InitializeAsync()
     {
         // Skip the resource-reaper sidecar, which can be flaky on Docker Desktop.
@@ -70,6 +75,20 @@ public sealed class IntegrationFixture : IAsyncLifetime
             {
                 services.AddSingleton<IWhatsAppSender>(WhatsAppOutbox);
                 services.AddSingleton<IWhatsAppMediaClient>(WhatsAppMedia);
+            });
+        });
+
+        McpFactory = Factory.WithWebHostBuilder(builder =>
+        {
+            // The configured server only switches the MCP pipeline ON (its unreachable command also
+            // exercises the "unavailable server degrades gracefully" path); the tools the agent
+            // sees come from the stub provider below.
+            builder.UseSetting("Mcp:Servers:0:Name", "fake");
+            builder.UseSetting("Mcp:Servers:0:Transport", "Stdio");
+            builder.UseSetting("Mcp:Servers:0:Command", "cortex-it-mcp-server-that-does-not-exist");
+            builder.ConfigureTestServices(services =>
+            {
+                services.AddSingleton<Cortex.Application.Mcp.IMcpToolProvider>(new FakeMcpToolProvider());
             });
         });
 
@@ -143,6 +162,11 @@ public sealed class IntegrationFixture : IAsyncLifetime
     {
         Environment.SetEnvironmentVariable("ConnectionStrings__cortex-platform", null);
         Environment.SetEnvironmentVariable("ConnectionStrings__cortex-audit", null);
+
+        if (McpFactory is not null)
+        {
+            await McpFactory.DisposeAsync();
+        }
 
         if (WhatsAppFactory is not null)
         {
@@ -220,6 +244,24 @@ public sealed class FakeGraphApiClient : Cortex.Connectors.MsGraph.IGraphApiClie
             ? new Cortex.Connectors.MsGraph.GraphFileContent(
                 new MemoryStream("Engagement letter for the Contoso matter."u8.ToArray()), "text/plain")
             : null);
+}
+
+/// <summary>Two deterministic "MCP" tools: a read-only echo and a side-effecting alert (approval-gated).</summary>
+public sealed class FakeMcpToolProvider : Cortex.Application.Mcp.IMcpToolProvider
+{
+    private readonly IReadOnlyList<Cortex.Application.Mcp.McpServerTool> _tools =
+    [
+        new("fake",
+            Microsoft.Extensions.AI.AIFunctionFactory.Create(
+                (string message) => $"MCP echo: {message}", name: "fake_echo_message"),
+            RequiresApproval: false),
+        new("fake",
+            Microsoft.Extensions.AI.AIFunctionFactory.Create(
+                (string message) => $"alert sent: {message}", name: "fake_send_alert"),
+            RequiresApproval: true),
+    ];
+
+    public IReadOnlyList<Cortex.Application.Mcp.McpServerTool> GetTools() => _tools;
 }
 
 [CollectionDefinition("api")]

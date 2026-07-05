@@ -40,5 +40,6 @@ public static class PermissionCatalog
         new("tools.skills.read_skill_resource", ChatCategory, "Agent tool: read a resource file bundled with an installed skill."),
         new("tools.skills.run_skill_script", ChatCategory, "Agent tool: run a script bundled with an installed skill (side-effecting; approval-gated)."),
         new("tools.handoff.ask_module", ChatCategory, "Agent tool: ask another enabled module's assistant a read-only question (ask_finance, ask_legal, …) and relay the answer."),
+        new("tools.mcp.*", ChatCategory, "Agent tools from configured external MCP servers (each discovered tool is tools.mcp.{server}_{tool}; approval-gated by default; granted to no role until an admin opts in)."),
     ];
 }

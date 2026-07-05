@@ -41,6 +41,12 @@ public static class Permissions
     public const string HandoffToolModule = "handoff";
 
     /// <summary>
+    /// The pseudo-module id MCP-server tools are namespaced under (tools.mcp.{server}_{tool}).
+    /// Granted to NO role by default — an admin opts users in per tool (or via tools.mcp.*).
+    /// </summary>
+    public const string McpToolModule = "mcp";
+
+    /// <summary>
     /// Permissions reserved for the platform operator (system_admin): they act ACROSS tenants, so a
     /// tenant-scoped admin must never hold them. The RBAC editor refuses to grant these — or any wildcard that
     /// covers them (<c>platform.*</c>, <c>*</c>) — to a role or user unless the caller already holds them, which

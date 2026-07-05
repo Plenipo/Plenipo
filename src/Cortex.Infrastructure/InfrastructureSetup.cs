@@ -55,6 +55,7 @@ public static class InfrastructureSetup
         AddPersistence(builder);
         AddSecretVault(builder);
         AddSkills(builder);
+        AddMcp(builder);
         AddAuthorization(builder);
         AddAuditing(services);
         AddAgentStack(builder);
@@ -244,6 +245,25 @@ public static class InfrastructureSetup
             services.AddScoped<SkillTools>();
             services.AddSingleton<IPlatformToolSource, SkillToolSource>();
         }
+    }
+
+    private static void AddMcp(IHostApplicationBuilder builder)
+    {
+        var services = builder.Services;
+
+        // Deploy-time like skills: only a host with configured servers gets the MCP pipeline. The
+        // manager connects in the background (never blocks startup); every discovered tool is
+        // RBAC-gated (tools.mcp.*, granted to no role by default) and approval-gated per server.
+        if (builder.Configuration.GetSection(Application.Mcp.McpOptions.SectionName).Get<Application.Mcp.McpOptions>() is not { Servers.Count: > 0 })
+        {
+            return;
+        }
+
+        services.Configure<Application.Mcp.McpOptions>(builder.Configuration.GetSection(Application.Mcp.McpOptions.SectionName));
+        services.AddSingleton<Mcp.McpClientManager>();
+        services.AddSingleton<Application.Mcp.IMcpToolProvider>(sp => sp.GetRequiredService<Mcp.McpClientManager>());
+        services.AddHostedService(sp => sp.GetRequiredService<Mcp.McpClientManager>());
+        services.AddSingleton<IPlatformToolSource, Mcp.McpToolSource>();
     }
 
     private static void AddAgentStack(IHostApplicationBuilder builder)
