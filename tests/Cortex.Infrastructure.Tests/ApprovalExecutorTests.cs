@@ -36,7 +36,7 @@ public sealed class ApprovalExecutorTests
             ArgumentsJson = """{"description":"OXXO groceries","amount":42.50}""",
         };
 
-        var result = await new ApprovalExecutor(registry).ExecuteAsync(approval, new EmptyServiceProvider(), CancellationToken.None);
+        var result = await new ApprovalExecutor(registry, new NoConnectorTools()).ExecuteAsync(approval, new EmptyServiceProvider(), CancellationToken.None);
 
         Assert.True(result.Success);
         Assert.Equal("OXXO groceries", captured.Description);
@@ -57,7 +57,7 @@ public sealed class ApprovalExecutorTests
             ArgumentsJson = "{}",
         };
 
-        var result = await new ApprovalExecutor(registry).ExecuteAsync(approval, new EmptyServiceProvider(), CancellationToken.None);
+        var result = await new ApprovalExecutor(registry, new NoConnectorTools()).ExecuteAsync(approval, new EmptyServiceProvider(), CancellationToken.None);
 
         Assert.False(result.Success);
         Assert.Contains("ghost_tool", result.Error!, StringComparison.Ordinal);
@@ -72,5 +72,12 @@ public sealed class ApprovalExecutorTests
     private sealed class EmptyServiceProvider : IServiceProvider
     {
         public object? GetService(Type serviceType) => null;
+    }
+
+    private sealed class NoConnectorTools : Cortex.Application.Connectors.IConnectorToolCatalog
+    {
+        public Task<IReadOnlyList<ModuleTool>> GetEnabledToolsAsync(
+            IServiceProvider scopedServices, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<ModuleTool>>([]);
     }
 }

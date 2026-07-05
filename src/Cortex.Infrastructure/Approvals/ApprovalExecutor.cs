@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Cortex.Application.Agents;
+using Cortex.Application.Connectors;
 using Cortex.Core.Platform;
 using Microsoft.Extensions.AI;
 
@@ -11,16 +12,19 @@ public readonly record struct ApprovalExecutionResult(bool Success, string? Resu
 /// <summary>
 /// Re-executes an approved, side-effecting tool call with its recorded arguments. Resolves the tool from
 /// the module's registered tool source within the request scope (so the tool's scoped services — its
-/// DbContext, the current tenant — are wired), then invokes it. Argument coercion from the stored JSON
-/// back into the tool's typed parameters is handled by the <see cref="AIFunction"/> itself.
+/// DbContext, the current tenant — are wired), falling back to the tenant's enabled connector tools
+/// (which the runner offers alongside module tools), then invokes it. Argument coercion from the stored
+/// JSON back into the tool's typed parameters is handled by the <see cref="AIFunction"/> itself.
 /// </summary>
-public sealed class ApprovalExecutor(IToolRegistry toolRegistry)
+public sealed class ApprovalExecutor(IToolRegistry toolRegistry, IConnectorToolCatalog connectorTools)
 {
     public async Task<ApprovalExecutionResult> ExecuteAsync(
         PendingApproval approval, IServiceProvider scopedServices, CancellationToken cancellationToken = default)
     {
         var tool = toolRegistry.GetModuleTools(approval.ModuleId, scopedServices)
-            .FirstOrDefault(t => string.Equals(t.Name, approval.ToolName, StringComparison.Ordinal));
+                .FirstOrDefault(t => string.Equals(t.Name, approval.ToolName, StringComparison.Ordinal))
+            ?? (await connectorTools.GetEnabledToolsAsync(scopedServices, cancellationToken))
+                .FirstOrDefault(t => string.Equals(t.Name, approval.ToolName, StringComparison.Ordinal));
 
         if (tool is null)
         {

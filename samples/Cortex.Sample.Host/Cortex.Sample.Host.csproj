@@ -12,6 +12,10 @@
     <UserSecretsId>cortex-sample-host</UserSecretsId>
   </PropertyGroup>
 
+  <ItemGroup Label="Agent skills — deploy-time content, copied beside the binaries">
+    <Content Include="skills\**" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\..\src\Cortex.AspNetCore\Cortex.AspNetCore.csproj" />
     <ProjectReference Include="..\..\src\Cortex.Connectors\Cortex.Connectors.csproj" />

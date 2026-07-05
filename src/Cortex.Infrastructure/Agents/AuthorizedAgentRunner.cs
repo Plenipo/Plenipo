@@ -8,6 +8,7 @@ using Cortex.Application.Auditing;
 using Cortex.Application.Connectors;
 using Cortex.Application.Conversations;
 using Cortex.Application.Modules;
+using Cortex.Application.Skills;
 using Cortex.Application.Usage;
 using Cortex.Core.Identity;
 using Cortex.Core.Platform;
@@ -42,6 +43,7 @@ public sealed class AuthorizedAgentRunner(
     IAuditLog auditLog,
     ITokenUsageReader usageReader,
     IApprovalStore approvalStore,
+    ISkillCatalog skillCatalog,
     ICurrentUser currentUser,
     IOptions<AiOptions> aiOptions,
     ILogger<AuthorizedAgentRunner> logger) : IAuthorizedAgentRunner
@@ -129,16 +131,26 @@ public sealed class AuthorizedAgentRunner(
             }
         }
 
-        // Tools whose manifest descriptor marks them side-effecting: blocked pending human approval.
+        // Tools marked side-effecting are blocked pending human approval — both the module
+        // manifest's declarations and per-tool flags on platform/connector tools (connector fetch
+        // tools and skill scripts carry the flag on the ModuleTool itself, not in a manifest).
         var approvalRequired = manifest.Tools
             .Where(t => t.RequiresApproval)
             .Select(t => t.Name)
             .ToHashSet(StringComparer.Ordinal);
+        approvalRequired.UnionWith(candidateTools.Where(t => t.RequiresApproval).Select(t => t.Name));
 
         // The tenant's default agent profile for this module (if any) retasks or specializes the
         // chatbot — same manifest tools, different voice/policy, no code change.
         var profile = await agentProfiles.ResolveActiveAsync(request.ModuleId, cancellationToken);
         var instructions = InstructionComposer.Compose(aiSettings.SystemPrompt, manifest.AgentInstructions, profile);
+
+        // Advertise skills (name + description only — progressive disclosure) when this user can
+        // actually load them; the full instructions arrive via the load_skill tool on demand.
+        if (skillCatalog.IsEnabled && toolsByName.ContainsKey("load_skill"))
+        {
+            instructions = SkillAdvertisement.Append(instructions, skillCatalog.List());
+        }
         var middleware = new ToolInvocationMiddleware(auditLog, currentUser, approvalRequired, toolsByName, request.ModuleId, conversation.Id);
 
         // Instrument the chat client (LLM calls + token usage) and the agent (runs) so the whole turn is

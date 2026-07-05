@@ -48,11 +48,22 @@ KV references instead of env vars).
   secrets are forgotten from KV best-effort. Same write-only admin UI. Delivered.
   Deferred to a later pass: resolving `Ai:ApiKey` through the vault (needs the vault before the
   ChatClient singleton is built — a small startup-ordering refactor).
-- [ ] **Phase 3 — MAF agent skills**: `Skills:Enabled` + `Skills:Path` config;
-  `AgentSkillsProvider` (file-based, `SubprocessScriptRunner`, `UseScriptApproval(true)`)
-  attached as an `AIContextProvider` on the module agent; skill load/run events surface through
-  the existing tool-call audit; sample skill under `samples/skills/` proving the loop with the
-  Mock provider; docs on authoring.
+- [x] **Phase 3 — Agent skills (MAF file format, Cortex pipeline)**: `Skills:Enabled` +
+  `Skills:Path`; `FileSkillCatalog` loads `SKILL.md` bundles (same on-disk format as MAF
+  file-based skills / agentskills.io: frontmatter name+description, instruction body,
+  `references/`, `scripts/`). DESIGN DECISION: the progressive-disclosure loop
+  (`load_skill` / `read_skill_resource` / `run_skill_script`) ships as platform tools
+  (`tools.skills.*`) rather than MAF's provider-injected functions, so RBAC filtering, tool-call
+  audit, the approval flow, AND approved-script re-execution through ApprovalExecutor all work
+  unchanged — MAF's `UseScriptApproval` would have created a second, parallel approval pipeline
+  the admin UI can't see. `<available_skills>` advertisement appended to instructions only when
+  the user can call load_skill. Script runs: interpreter by extension (py/js/sh/ps1), skill-dir
+  confinement (traversal rejected), timeout + process-tree kill, approval-gated. Sample skill
+  `samples/Cortex.Sample.Host/skills/brand-voice`. Delivered.
+  ALSO FIXED (found during integration): connector tools' `RequiresApproval` flag was shown in
+  the admin UI but never enforced at run time — the runner's approval set only included module
+  manifest tools. Now unioned with per-ModuleTool flags; ApprovalExecutor also falls back to the
+  connector catalog so approved connector tools actually re-execute.
 - [ ] **Phase 4 — Deployment: containers + compose (the OpenClaw lesson)**: multi-stage
   Dockerfile for `samples/Cortex.Sample.Host` (and Legal host), `deploy/compose/
   docker-compose.yml` (api + pgvector pg17 + redis, pinned tags, named volumes, healthchecks),

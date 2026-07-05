@@ -10,6 +10,7 @@ using Cortex.Application.Jobs;
 using Cortex.Application.Modules;
 using Cortex.Application.Rag;
 using Cortex.Application.Secrets;
+using Cortex.Application.Skills;
 using Cortex.Application.Usage;
 using Cortex.Core.Identity;
 using Cortex.Core.Multitenancy;
@@ -29,6 +30,7 @@ using Cortex.Infrastructure.Persistence;
 using Cortex.Infrastructure.Persistence.Interceptors;
 using Cortex.Infrastructure.Rag;
 using Cortex.Infrastructure.Secrets;
+using Cortex.Infrastructure.Skills;
 using Cortex.Infrastructure.Usage;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
@@ -50,6 +52,7 @@ public static class InfrastructureSetup
         AddRequestContext(services);
         AddPersistence(builder);
         AddSecretVault(builder);
+        AddSkills(builder);
         AddAuthorization(builder);
         AddAuditing(services);
         AddAgentStack(builder);
@@ -222,6 +225,22 @@ public static class InfrastructureSetup
         else
         {
             services.AddSingleton<ISecretVault>(sp => sp.GetRequiredService<DataProtectionSecretVault>());
+        }
+    }
+
+    private static void AddSkills(IHostApplicationBuilder builder)
+    {
+        var services = builder.Services;
+
+        services.Configure<SkillsOptions>(builder.Configuration.GetSection(SkillsOptions.SectionName));
+        services.AddSingleton<ISkillCatalog, FileSkillCatalog>();
+
+        // The skill tools only exist as a tool source when skills are on — a deployment without
+        // skills never shows the model load_skill/read_skill_resource/run_skill_script.
+        if (builder.Configuration.GetSection(SkillsOptions.SectionName).Get<SkillsOptions>() is { Enabled: true })
+        {
+            services.AddScoped<SkillTools>();
+            services.AddSingleton<IPlatformToolSource, SkillToolSource>();
         }
     }
 
