@@ -3,6 +3,39 @@ namespace Cortex.Modules.Sdk;
 /// <summary>A column in a tab's server-driven data view: which row field to show, and its header.</summary>
 public sealed record TabColumn(string Field, string Header);
 
+/// <summary>A field in a tab's generic editor form: which row/body property, its label, and its shape.</summary>
+public sealed record TabEditorField(string Field, string Label, bool Multiline = false, bool Required = true);
+
+/// <summary>
+/// Optional mutation affordances for a server-driven tab: when declared, the shell's generic table
+/// gains Add / Edit / Delete without the module shipping any custom UI. The UI shows the
+/// affordances only to callers holding <see cref="Permission"/> — the endpoints themselves stay
+/// authorization-gated server-side regardless.
+/// </summary>
+public sealed record TabEditor
+{
+    /// <summary>POST target for add and edit; the body is a JSON object of <see cref="Fields"/> values.</summary>
+    public required string UpsertEndpoint { get; init; }
+
+    /// <summary>
+    /// Optional DELETE target with one <c>{field}</c> placeholder substituted from the row
+    /// (e.g. <c>/api/legal/clauses/{slug}</c>). Null = no delete affordance.
+    /// </summary>
+    public string? DeleteEndpoint { get; init; }
+
+    /// <summary>Permission gating the UI affordances (e.g. <c>legal.library.manage</c>).</summary>
+    public required string Permission { get; init; }
+
+    /// <summary>The editable fields, in form order.</summary>
+    public IReadOnlyList<TabEditorField> Fields { get; init; } = [];
+
+    /// <summary>
+    /// The row field that identifies a record for editing (the upsert endpoint's match key, shown
+    /// read-only when editing). Null = rows are add/delete only, no per-row Edit.
+    /// </summary>
+    public string? KeyField { get; init; }
+}
+
 /// <summary>
 /// A navigation tab a module contributes to the dashboard. The React shell builds its sidebar and
 /// routes purely from the tabs returned by the API, filtered by the caller's permissions — the
@@ -40,6 +73,9 @@ public sealed record TabDescriptor
 
     /// <summary>Columns for the <see cref="DataEndpoint"/> table. Empty falls back to the row's own fields.</summary>
     public IReadOnlyList<TabColumn> Columns { get; init; } = [];
+
+    /// <summary>Optional add/edit/delete affordances for the <see cref="DataEndpoint"/> table.</summary>
+    public TabEditor? Editor { get; init; }
 
     /// <summary>
     /// Optional friendly empty-state message the shell shows when the tab has no <see cref="DataEndpoint"/>

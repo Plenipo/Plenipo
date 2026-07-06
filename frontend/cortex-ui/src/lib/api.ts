@@ -14,6 +14,29 @@ export interface TabColumn {
   header: string;
 }
 
+/** A field in a tab's generic editor form. */
+export interface TabEditorField {
+  field: string;
+  label: string;
+  multiline?: boolean;
+  required?: boolean;
+}
+
+/**
+ * Mutation affordances for a server-driven tab (add/edit/delete on the generic table). Present in
+ * the payload ONLY when the caller holds the module-declared permission — the endpoints stay
+ * authorization-gated server-side regardless.
+ */
+export interface TabEditor {
+  /** POST target for add and edit; the body is a JSON object of `fields` values. */
+  upsertEndpoint: string;
+  /** DELETE target with one `{field}` placeholder substituted from the row. Absent = no delete. */
+  deleteEndpoint?: string;
+  /** Row field identifying a record for editing (read-only in the edit form). Absent = add/delete only. */
+  keyField?: string;
+  fields: TabEditorField[];
+}
+
 /** A tab inside a module. */
 export interface ModuleTab {
   id: string;
@@ -25,6 +48,8 @@ export interface ModuleTab {
   columns?: TabColumn[];
   /** Friendly empty-state copy shown when the tab has no `dataEndpoint` and no supplied content. */
   placeholder?: string;
+  /** Add/edit/delete affordances for the table; present only when the caller may use them. */
+  editor?: TabEditor | null;
 }
 
 /** A module returned from GET /api/platform/modules. */

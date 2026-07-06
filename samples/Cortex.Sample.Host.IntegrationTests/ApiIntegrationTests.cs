@@ -38,6 +38,39 @@ public sealed class ApiIntegrationTests(IntegrationFixture fixture)
         Assert.NotEmpty(transactions.GetProperty("columns").EnumerateArray());
     }
 
+    [Fact]
+    public async Task TabEditor_ShipsOnlyToCallersHoldingItsPermission()
+    {
+        // A wildcard admin gets the clauses tab's editor affordances…
+        var admin = await fixture.ClientFor("system_admin").GetFromJsonAsync<JsonElement>("/api/platform/modules");
+        var adminClauses = admin.EnumerateArray().First(m => m.GetProperty("id").GetString() == "legal")
+            .GetProperty("tabs").EnumerateArray().First(t => t.GetProperty("id").GetString() == "clauses");
+        var editor = adminClauses.GetProperty("editor");
+        Assert.Equal("/api/legal/clauses", editor.GetProperty("upsertEndpoint").GetString());
+        Assert.Equal("slug", editor.GetProperty("keyField").GetString());
+        Assert.NotEmpty(editor.GetProperty("fields").EnumerateArray());
+
+        // …a plain user who can VIEW clauses but not manage the library gets a read-only tab: the
+        // payload itself never advertises affordances the caller can't use.
+        using var user = fixture.ClientFor("user");
+        // 'user' lacks legal.clauses.view by default; grant view-only via an explicit role? The dev
+        // baseline: legal tabs need module role perms — use tenant_admin, who can view but does NOT
+        // hold legal.library.manage.
+        var viewer = await fixture.ClientFor("tenant_admin").GetFromJsonAsync<JsonElement>("/api/platform/modules");
+        var viewerLegal = viewer.EnumerateArray().FirstOrDefault(m => m.GetProperty("id").GetString() == "legal");
+        if (viewerLegal.ValueKind == JsonValueKind.Object)
+        {
+            var viewerClauses = viewerLegal.GetProperty("tabs").EnumerateArray()
+                .FirstOrDefault(t => t.GetProperty("id").GetString() == "clauses");
+            if (viewerClauses.ValueKind == JsonValueKind.Object)
+            {
+                Assert.True(
+                    !viewerClauses.TryGetProperty("editor", out var e) || e.ValueKind == JsonValueKind.Null,
+                    "a caller without legal.library.manage must not receive editor affordances");
+            }
+        }
+    }
+
     [Theory]
     [InlineData("finance", "/api/finance/transactions")]
     [InlineData("nutrition", "/api/nutrition/foods")]

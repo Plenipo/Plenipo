@@ -55,7 +55,14 @@ public static class PlatformEndpoints
             .Select(t => new TabDto(
                 t.Id, t.Label, t.Route, t.Icon, t.DataEndpoint,
                 t.Columns.Select(c => new TabColumnDto(c.Field, c.Header)).ToArray(),
-                t.Placeholder))
+                t.Placeholder,
+                // The editor ships only to callers holding its permission, so the payload never
+                // advertises affordances the user can't use (the endpoints stay gated regardless).
+                t.Editor is { } e && user.HasPermission(e.Permission)
+                    ? new TabEditorDto(
+                        e.UpsertEndpoint, e.DeleteEndpoint, e.KeyField,
+                        e.Fields.Select(f => new TabEditorFieldDto(f.Field, f.Label, f.Multiline, f.Required)).ToArray())
+                    : null))
             .ToArray();
 
         return new ModuleDto(
@@ -67,9 +74,14 @@ public static class PlatformEndpoints
         string Id, string DisplayName, string? Description, string? Icon, TabDto[] Tabs, string[] SuggestedPrompts);
 
     private sealed record TabDto(
-        string Id, string Label, string Route, string? Icon, string? DataEndpoint, TabColumnDto[] Columns, string? Placeholder);
+        string Id, string Label, string Route, string? Icon, string? DataEndpoint, TabColumnDto[] Columns, string? Placeholder,
+        TabEditorDto? Editor);
 
     private sealed record TabColumnDto(string Field, string Header);
+
+    private sealed record TabEditorDto(string UpsertEndpoint, string? DeleteEndpoint, string? KeyField, TabEditorFieldDto[] Fields);
+
+    private sealed record TabEditorFieldDto(string Field, string Label, bool Multiline, bool Required);
 
     private sealed record MeDto(Guid? UserId, string? DisplayName, Guid? TenantId, string[] Permissions);
 

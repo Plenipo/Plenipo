@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { GenericTab } from "./GenericTab";
 import type { ModuleTab } from "../lib/api";
@@ -47,5 +47,105 @@ describe("GenericTab (server-driven table)", () => {
     renderTab(foodsTab, []);
 
     expect(await screen.findByText("No data yet.")).toBeTruthy();
+  });
+
+  it("stays read-only when the tab declares no editor", async () => {
+    renderTab(foodsTab, [{ name: "Chicken breast", kcalPer100g: 165 }]);
+
+    await screen.findByText("Chicken breast");
+    expect(screen.queryByRole("button", { name: "Add" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+  });
+
+  const clausesTab: ModuleTab = {
+    id: "clauses",
+    label: "Clauses",
+    route: "/legal/clauses",
+    dataEndpoint: "/api/legal/clauses",
+    columns: [{ field: "title", header: "Clause" }],
+    editor: {
+      upsertEndpoint: "/api/legal/clauses",
+      deleteEndpoint: "/api/legal/clauses/{slug}",
+      keyField: "slug",
+      fields: [
+        { field: "slug", label: "Type" },
+        { field: "title", label: "Title" },
+        { field: "template", label: "Clause text", multiline: true },
+      ],
+    },
+  };
+
+  it("with an editor: Add opens the form and Save POSTs the field values", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      void input;
+      void init;
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve([{ slug: "confidentiality", title: "Confidentiality", template: "Keep it secret." }]),
+      } as unknown as Response);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <GenericTab tab={clausesTab} />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Add" }));
+    fireEvent.change(screen.getByLabelText("Type"), { target: { value: "data-protection" } });
+    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Data Protection" } });
+    fireEvent.change(screen.getByLabelText("Clause text"), { target: { value: "Handle data lawfully." } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      const post = fetchMock.mock.calls.find(
+        (c) => String(c[0]).endsWith("/api/legal/clauses") && (c[1] as RequestInit | undefined)?.method === "POST",
+      );
+      expect(post).toBeTruthy();
+      expect(JSON.parse((post![1] as RequestInit).body as string)).toEqual({
+        slug: "data-protection",
+        title: "Data Protection",
+        template: "Handle data lawfully.",
+      });
+    });
+  });
+
+  it("with an editor: Edit prefills from the row and locks the key field; Delete DELETEs the resolved URL", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      void input;
+      void init;
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve([{ slug: "confidentiality", title: "Confidentiality", template: "Keep it secret." }]),
+      } as unknown as Response);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <GenericTab tab={clausesTab} />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
+    const key = screen.getByLabelText("Type") as HTMLInputElement;
+    expect(key.value).toBe("confidentiality");
+    expect(key.disabled).toBe(true); // the key is the record identity — not editable
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    // The dialog is open: its confirm is the LAST Delete button in the tree.
+    const deletes = screen.getAllByRole("button", { name: "Delete" });
+    fireEvent.click(deletes[deletes.length - 1]);
+
+    await waitFor(() => {
+      const del = fetchMock.mock.calls.find(
+        (c) =>
+          String(c[0]).endsWith("/api/legal/clauses/confidentiality") &&
+          (c[1] as RequestInit | undefined)?.method === "DELETE",
+      );
+      expect(del).toBeTruthy();
+    });
   });
 });

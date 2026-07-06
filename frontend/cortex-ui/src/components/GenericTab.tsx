@@ -1,16 +1,122 @@
-import { useQuery } from "@tanstack/react-query";
-import { apiGet, type ModuleTab, type TabColumn } from "../lib/api";
+import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { apiGet, apiSend, type ModuleTab, type TabColumn, type TabEditor } from "../lib/api";
+import { ConfirmDialog } from "./ConfirmDialog";
 
 interface GenericTabProps {
   tab: ModuleTab;
   children?: React.ReactNode;
 }
 
-/** Renders a tab's `dataEndpoint` (a JSON array) as a generic table — no domain-specific UI needed. */
-function DataTable({ endpoint, columns }: { endpoint: string; columns: TabColumn[] }) {
+const inputClass =
+  "w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 disabled:opacity-60 dark:border-slate-600 dark:bg-slate-800";
+
+/** Substitute the `{field}` placeholder in a delete-endpoint template from the row's values. */
+function resolveDeleteUrl(template: string, row: Record<string, unknown>): string {
+  return template.replace(/\{(\w+)\}/, (_, field: string) => encodeURIComponent(String(row[field] ?? "")));
+}
+
+/**
+ * The generic editor form: fields come from the tab's declared editor, values from the row being
+ * edited (or empty for add). The key field is read-only while editing — it's the record identity.
+ */
+function EditorForm({
+  editor,
+  initial,
+  onDone,
+}: {
+  editor: TabEditor;
+  initial: Record<string, unknown> | null;
+  onDone: () => void;
+}) {
+  const qc = useQueryClient();
+  const [values, setValues] = useState<Record<string, string>>(() =>
+    Object.fromEntries(editor.fields.map((f) => [f.field, initial?.[f.field] == null ? "" : String(initial[f.field])])),
+  );
+
+  const save = useMutation({
+    mutationFn: () => apiSend(editor.upsertEndpoint, "POST", values),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["tab-data"] });
+      onDone();
+    },
+  });
+
+  const missing = editor.fields.some((f) => (f.required ?? true) && values[f.field].trim() === "");
+
+  return (
+    <form
+      className="space-y-3 rounded-lg border border-brand-200 bg-white p-4 dark:border-brand-900/60 dark:bg-slate-900"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (!missing) save.mutate();
+      }}
+    >
+      {editor.fields.map((f) => (
+        <div key={f.field} className="space-y-1">
+          <label htmlFor={`editor-${f.field}`} className="block text-sm font-medium text-slate-700 dark:text-slate-200">
+            {f.label}
+          </label>
+          {f.multiline ? (
+            <textarea
+              id={`editor-${f.field}`}
+              rows={4}
+              value={values[f.field]}
+              onChange={(e) => setValues((v) => ({ ...v, [f.field]: e.target.value }))}
+              className={inputClass}
+            />
+          ) : (
+            <input
+              id={`editor-${f.field}`}
+              value={values[f.field]}
+              disabled={initial !== null && editor.keyField === f.field}
+              onChange={(e) => setValues((v) => ({ ...v, [f.field]: e.target.value }))}
+              className={inputClass}
+            />
+          )}
+        </div>
+      ))}
+
+      {save.isError && <p className="text-xs text-red-600">{(save.error as Error).message}</p>}
+
+      <div className="flex gap-2">
+        <button
+          type="submit"
+          disabled={save.isPending || missing}
+          className="focus-ring rounded bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-500 disabled:opacity-40"
+        >
+          {save.isPending ? "Saving…" : "Save"}
+        </button>
+        <button
+          type="button"
+          onClick={onDone}
+          className="focus-ring rounded border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-600 dark:border-slate-600 dark:text-slate-300"
+        >
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/**
+ * Renders a tab's `dataEndpoint` (a JSON array) as a generic table — no domain-specific UI needed.
+ * When the tab declares an `editor` (and the server decided this caller may use it), the table
+ * gains Add, per-row Edit (when a key field identifies records), and Delete with confirmation.
+ */
+function DataTable({ endpoint, columns, editor }: { endpoint: string; columns: TabColumn[]; editor?: TabEditor | null }) {
+  const qc = useQueryClient();
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ["tab-data", endpoint],
     queryFn: () => apiGet<Record<string, unknown>[]>(endpoint),
+  });
+  // null = closed; {} = adding; a row = editing that row.
+  const [editing, setEditing] = useState<Record<string, unknown> | null | "add">(null);
+  const [deleting, setDeleting] = useState<Record<string, unknown> | null>(null);
+
+  const remove = useMutation({
+    mutationFn: (row: Record<string, unknown>) => apiSend(resolveDeleteUrl(editor!.deleteEndpoint!, row), "DELETE"),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["tab-data"] }),
   });
 
   if (isLoading) {
@@ -29,37 +135,94 @@ function DataTable({ endpoint, columns }: { endpoint: string; columns: TabColumn
           .filter((k) => k !== "id")
           .map((k) => ({ field: k, header: k }));
 
+  const canEdit = editor?.keyField != null;
+  const canDelete = editor?.deleteEndpoint != null;
+
   return (
-    <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
-      <table className="w-full text-left text-sm">
-        <thead className="bg-slate-50 text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-          <tr>
-            {cols.map((c) => (
-              <th key={c.field} className="px-4 py-2 font-medium">
-                {c.header}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-          {rows.length === 0 && (
+    <div className="space-y-3">
+      {editor && editing === null && (
+        <button
+          type="button"
+          onClick={() => setEditing("add")}
+          className="focus-ring rounded bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-500"
+        >
+          Add
+        </button>
+      )}
+      {editor && editing !== null && (
+        <EditorForm editor={editor} initial={editing === "add" ? null : editing} onDone={() => setEditing(null)} />
+      )}
+      {remove.isError && <p className="text-xs text-red-600">{(remove.error as Error).message}</p>}
+
+      <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
+        <table className="w-full text-left text-sm">
+          <thead className="bg-slate-50 text-slate-500 dark:bg-slate-800 dark:text-slate-400">
             <tr>
-              <td colSpan={cols.length} className="px-4 py-6 text-center text-slate-400">
-                No data yet.
-              </td>
-            </tr>
-          )}
-          {rows.map((row, i) => (
-            <tr key={i}>
               {cols.map((c) => (
-                <td key={c.field} className="px-4 py-2 text-slate-700 dark:text-slate-200">
-                  {row[c.field] == null ? "" : String(row[c.field])}
-                </td>
+                <th key={c.field} className="px-4 py-2 font-medium">
+                  {c.header}
+                </th>
               ))}
+              {editor && (canEdit || canDelete) && <th className="px-4 py-2" />}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+            {rows.length === 0 && (
+              <tr>
+                <td colSpan={cols.length + (editor ? 1 : 0)} className="px-4 py-6 text-center text-slate-400">
+                  No data yet.
+                </td>
+              </tr>
+            )}
+            {rows.map((row, i) => (
+              <tr key={i}>
+                {cols.map((c) => (
+                  <td key={c.field} className="px-4 py-2 text-slate-700 dark:text-slate-200">
+                    {row[c.field] == null ? "" : String(row[c.field])}
+                  </td>
+                ))}
+                {editor && (canEdit || canDelete) && (
+                  <td className="px-4 py-2 text-right">
+                    <span className="inline-flex gap-2">
+                      {canEdit && (
+                        <button
+                          type="button"
+                          onClick={() => setEditing(row)}
+                          className="focus-ring rounded border border-slate-300 px-2 py-0.5 text-xs font-medium text-slate-600 dark:border-slate-600 dark:text-slate-300"
+                        >
+                          Edit
+                        </button>
+                      )}
+                      {canDelete && (
+                        <button
+                          type="button"
+                          onClick={() => setDeleting(row)}
+                          className="focus-ring rounded border border-red-300 px-2 py-0.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-900/20"
+                        >
+                          Delete
+                        </button>
+                      )}
+                    </span>
+                  </td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <ConfirmDialog
+        open={deleting !== null}
+        title="Delete row"
+        body="Delete this entry? This cannot be undone."
+        confirmLabel="Delete"
+        tone="danger"
+        onConfirm={() => {
+          if (deleting) remove.mutate(deleting);
+          setDeleting(null);
+        }}
+        onCancel={() => setDeleting(null)}
+      />
     </div>
   );
 }
@@ -79,7 +242,7 @@ export function GenericTab({ tab, children }: GenericTabProps) {
 
       {children ??
         (tab.dataEndpoint ? (
-          <DataTable endpoint={tab.dataEndpoint} columns={tab.columns ?? []} />
+          <DataTable endpoint={tab.dataEndpoint} columns={tab.columns ?? []} editor={tab.editor} />
         ) : (
           <div className="rounded-lg border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
             {tab.placeholder ?? "Nothing to show here yet."}

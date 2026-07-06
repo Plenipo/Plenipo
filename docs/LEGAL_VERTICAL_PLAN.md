@@ -34,6 +34,7 @@ Derived from [research/legal-ai.md](../research/legal-ai.md) (Harvey + competito
 | 21. **Two-stage deadline reminders**: early heads-up when the window opens + a DUE-DAY final notice at/after the due moment ('DEADLINE DUE ... act now'); the final notice supersedes a pending early reminder (one urgent notification, never two); independent one-shot latches | done |
 | 22. **Golden evals for the v2 surface**: six new declarative cases pin agent behavior - docket-deadline blocked for approval (quoted-arg routing), list-deadlines friction-free, conflicts check read-only, log_time's deliberate no-approval exception, close-matter blocked, brief routes to get_matter_overview | done - v2 wrap-up |
 | 23. **Chat-first library curation** (parity with the-lawyer): save_clause / remove_clause / add_playbook_rule / remove_playbook_rule, approval-gated; removing the engagement-letter clause warns that intake step 4 depends on it; eval pins the approval posture | done |
+| 24. **Editable server-driven tables** (platform-level): TabDescriptor.Editor declares upsert/delete endpoints + form fields + a permission; the generic table gains Add / Edit (key-field locked) / Delete-with-confirm; the payload ships the editor ONLY to permitted callers. Clauses + Playbook tabs wired - the library is now click-editable, not just chat-editable | done |
 
 Pending user decisions: **product name** (EnBanc vs AdLitem, below) and **repo extraction timing**
 (recommended: at first tagged release — see Repo strategy).
