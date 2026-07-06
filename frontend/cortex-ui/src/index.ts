@@ -81,6 +81,7 @@ export type {
   AdminTenant,
   AiSettings,
   AgentProfile,
+  ModuleAgent,
   NotificationInfo,
   NotificationSettings,
   UserConnector,

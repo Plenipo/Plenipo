@@ -42,4 +42,11 @@ public sealed record ModuleManifest
     /// exercise the module's tools (e.g. "Summarize my spending") without knowing what to type. Optional.
     /// </summary>
     public IReadOnlyList<string> SuggestedPrompts { get; init; } = [];
+
+    /// <summary>
+    /// Named agents this module ships (selectable in the chat's agent picker). The plain module
+    /// assistant — <see cref="AgentInstructions"/> with every permitted tool — always exists;
+    /// these specialize or retask it. Optional.
+    /// </summary>
+    public IReadOnlyList<AgentDescriptor> Agents { get; init; } = [];
 }

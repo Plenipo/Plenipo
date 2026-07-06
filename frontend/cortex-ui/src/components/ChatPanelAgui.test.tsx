@@ -91,6 +91,40 @@ describe("ChatPanel over AG-UI", () => {
     });
   });
 
+  it("the agent and model picks ride the request's forwardedProps", async () => {
+    const fetchMock = aguiAwareFetch([
+      { type: "RUN_STARTED", threadId: "t", runId: "r" },
+      { type: "TEXT_MESSAGE_CONTENT", messageId: "m", delta: "Done." },
+      { type: "RUN_FINISHED", threadId: "t", runId: "r" },
+    ]);
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    // Seed the deployment facts so the model picker has choices without racing the /info query.
+    client.setQueryData(["info"], { chatEnabled: true, demoMode: true, maxUploadBytes: 1, availableModels: ["mock-thorough"] });
+    render(
+      <QueryClientProvider client={client}>
+        <ChatPanel
+          moduleId="finance"
+          agents={[{ name: "auditor", description: "Numbers only.", isDefault: false }]}
+        />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.change(screen.getByLabelText("Agent"), { target: { value: "auditor" } });
+    fireEvent.change(screen.getByLabelText("Model"), { target: { value: "mock-thorough" } });
+    fireEvent.change(screen.getByLabelText("Message"), { target: { value: "audit this" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find((c) => String(c[0]).includes("/api/agui/finance"));
+      expect(call).toBeTruthy();
+      expect(JSON.parse((call![1] as RequestInit).body as string).forwardedProps).toEqual({
+        agent: "auditor",
+        model: "mock-thorough",
+      });
+    });
+  });
+
   it("surfaces RUN_ERROR as a failed turn with retry", async () => {
     renderAgui(aguiAwareFetch([
       { type: "RUN_STARTED", threadId: "t", runId: "r" },

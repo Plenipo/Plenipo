@@ -94,6 +94,32 @@ public sealed class LegalModule : IModule
             "Summarize the documents on a matter, citing each file",
             "Search the clause library for indemnification",
         ],
+        // Module-shipped agents (Foundry-style): specialized personas selectable per turn in the
+        // chat's agent picker. Tool selections NARROW the caller's permitted set, never widen it;
+        // a tenant admin can override any of these by creating a profile with the same name.
+        Agents =
+        [
+            new AgentDescriptor
+            {
+                Name = "drafter",
+                Description = "Contract drafting — clause library, playbook, and document generation only.",
+                Instructions =
+                    "You are the drafting specialist. Work exclusively on contract language: search the clause " +
+                    "library, apply the negotiation playbook, and produce clean drafts. Decline matter " +
+                    "management, docketing, or billing requests — point the user at the general assistant.",
+                ToolNames = ["search_clauses", "draft_clause", "get_playbook", "save_clause", "generate_pdf", "list_matters", "attach_document_to_matter"],
+            },
+            new AgentDescriptor
+            {
+                Name = "docketing",
+                Description = "Deadlines and tasks — reads the calendar, never touches documents or billing.",
+                Instructions =
+                    "You are the docketing clerk. Manage deadlines, court dates, and matter tasks with " +
+                    "precision; always confirm dates back to the user in ISO format. Nothing else is yours: " +
+                    "no drafting, no billing, no document work.",
+                ToolNames = ["add_deadline", "list_deadlines", "complete_deadline", "add_task", "list_tasks", "complete_task", "list_matters"],
+            },
+        ],
         Roles = ["legal:user", "legal:admin"],
         Tools =
         [

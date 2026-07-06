@@ -19,7 +19,15 @@ public sealed record EffectiveAiSettings(string SystemPrompt, int MaxConversatio
     /// <summary>True when this tenant overrode the provider connection (its own provider/endpoint/key).</summary>
     public bool UsesTenantProvider { get; init; }
 
+    /// <summary>Models the chat's model picker offers (see <see cref="AiOptions.AvailableModels"/>).</summary>
+    public IReadOnlyList<string> AvailableModels { get; init; } = [];
+
     public bool IsEnabled => !string.Equals(Provider, "None", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>A per-turn model override is valid when it IS the default or is on the advertised list.</summary>
+    public bool AllowsModel(string model) =>
+        string.Equals(model, Model, StringComparison.Ordinal) ||
+        AvailableModels.Contains(model, StringComparer.Ordinal);
 
     /// <summary>
     /// Layer a tenant's overrides over the deployment defaults: a null or whitespace-only system prompt, and a
@@ -45,6 +53,7 @@ public sealed record EffectiveAiSettings(string SystemPrompt, int MaxConversatio
             Endpoint = usesTenantProvider ? row!.Endpoint : defaults.Endpoint,
             ApiKeySecretRef = usesTenantProvider ? row!.ApiKeySecretRef : null,
             UsesTenantProvider = usesTenantProvider,
+            AvailableModels = defaults.AvailableModels,
         };
     }
 

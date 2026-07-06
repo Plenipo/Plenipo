@@ -71,6 +71,16 @@ export interface TabDetailDocument {
   sections: TabDetailSection[];
 }
 
+/** An entry in the chat's agent picker: a tenant profile or a module-shipped agent. */
+export interface ModuleAgent {
+  name: string;
+  description?: string | null;
+  /** The agent that applies when the user picks none. */
+  isDefault: boolean;
+  /** Model this agent pins, if any (the picker shows it as a hint). */
+  model?: string | null;
+}
+
 /** A module returned from GET /api/platform/modules. */
 export interface Module {
   id: string;
@@ -80,6 +90,8 @@ export interface Module {
   tabs: ModuleTab[];
   /** Example prompts the chat surfaces as one-click starters. */
   suggestedPrompts?: string[];
+  /** Selectable agents for this module's chat (tenant profiles + module-shipped). */
+  agents?: ModuleAgent[];
 }
 
 /** A chat conversation from GET /api/chat/conversations. */
@@ -103,6 +115,8 @@ export interface PlatformInfo {
   demoMode: boolean;
   /** The server's attachment limit (bytes) — the composer preflights against it. */
   maxUploadBytes: number;
+  /** Models the chat's model picker offers (the runner enforces the same list). */
+  availableModels: string[];
 }
 
 /** A side-effecting tool call awaiting human approval, from GET /api/chat/approvals. */

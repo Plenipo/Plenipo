@@ -2,10 +2,26 @@ using Cortex.Core.Platform;
 
 namespace Cortex.Application.Ai;
 
-/// <summary>Resolves the tenant's active (default) agent profile for a module, if any.</summary>
+/// <summary>
+/// Resolves which agent applies to a chat turn. Agents come from two places — tenant-created
+/// profiles (DB, admin-managed) and the module manifest's code-first <c>Agents</c> — merged by
+/// name with the tenant profile winning, so an admin can override a module-shipped agent without
+/// touching code.
+/// </summary>
 public interface IAgentProfileResolver
 {
+    /// <summary>
+    /// The default agent when the user picked none: the tenant's default profile, else the
+    /// manifest agent marked <c>IsDefault</c>, else <c>null</c> (the plain module assistant).
+    /// </summary>
     public Task<AgentProfile?> ResolveActiveAsync(string moduleId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The agent the user explicitly picked, by name — a tenant profile first, else a manifest
+    /// agent. <c>null</c> means the name is unknown for this module (fail the turn readably;
+    /// never silently fall back to a different agent than the one asked for).
+    /// </summary>
+    public Task<AgentProfile?> ResolveNamedAsync(string moduleId, string agentName, CancellationToken cancellationToken = default);
 }
 
 /// <summary>

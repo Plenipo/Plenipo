@@ -86,18 +86,48 @@ public sealed class AuthorizedAgentRunner(
         // connection (a tenant may run its own provider + vaulted key; SaaS bring-your-own-key).
         var aiSettings = await tenantAiSettings.ResolveAsync(cancellationToken);
 
-        // The tenant's default agent profile for this module (if any) retasks or specializes the
-        // chatbot — different voice/policy, its own model, and (when it declares a tool selection)
-        // a narrower tool surface — no code change. Resolved before tool filtering.
-        var profile = await agentProfiles.ResolveActiveAsync(request.ModuleId, cancellationToken);
+        // The agent for this turn: the one the user picked by name (tenant profile or manifest
+        // agent — never a silent fallback when the name is unknown), else the default. Either way
+        // it retasks or specializes the chatbot — different voice/policy, its own model, and (when
+        // it declares a tool selection) a narrower tool surface. Resolved before tool filtering.
+        AgentProfile? profile;
+        if (!string.IsNullOrWhiteSpace(request.Agent))
+        {
+            profile = await agentProfiles.ResolveNamedAsync(request.ModuleId, request.Agent, cancellationToken);
+            if (profile is null)
+            {
+                yield return AgentStreamEvent.Failed(
+                    $"Unknown agent '{request.Agent}' for the '{manifest.DisplayName}' module.");
+                yield break;
+            }
+        }
+        else
+        {
+            profile = await agentProfiles.ResolveActiveAsync(request.ModuleId, cancellationToken);
+        }
 
-        // The turn's chat client: the tenant's connection with the profile's model override. A
-        // misconfigured connection (e.g. a key that no longer reveals) fails the turn readably.
+        // Per-turn model pick (Claude-Code-style): honoured only from the advertised list, so a
+        // client can never steer the turn onto an arbitrary model string. Beats the agent's pin.
+        string? modelOverride = profile?.Model;
+        if (!string.IsNullOrWhiteSpace(request.Model))
+        {
+            if (!aiSettings.AllowsModel(request.Model))
+            {
+                yield return AgentStreamEvent.Failed(
+                    $"Model '{request.Model}' is not available. An administrator configures the selectable models (Ai:AvailableModels).");
+                yield break;
+            }
+
+            modelOverride = request.Model;
+        }
+
+        // The turn's chat client: the tenant's connection with the model override. A misconfigured
+        // connection (e.g. a key that no longer reveals) fails the turn readably.
         IChatClient? chatClient = null;
         string? clientError = null;
         try
         {
-            chatClient = await chatClients.ResolveAsync(aiSettings, profile?.Model, cancellationToken);
+            chatClient = await chatClients.ResolveAsync(aiSettings, modelOverride, cancellationToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

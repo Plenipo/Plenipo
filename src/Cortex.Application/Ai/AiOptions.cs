@@ -45,5 +45,12 @@ public sealed class AiOptions
     /// <summary>Base system prompt; module-specific instructions are appended per conversation.</summary>
     public string SystemPrompt { get; set; } = "You are Cortex, a helpful and precise AI assistant.";
 
+    /// <summary>
+    /// Models a user may pick per turn in the chat's model picker (Claude-Code-style), within the
+    /// active provider connection. Empty = no picker choice beyond the default and agent-pinned
+    /// models. A per-turn model override must be on this list (or be the default model).
+    /// </summary>
+    public List<string> AvailableModels { get; set; } = [];
+
     public bool IsEnabled => !string.Equals(Provider, "None", StringComparison.OrdinalIgnoreCase);
 }

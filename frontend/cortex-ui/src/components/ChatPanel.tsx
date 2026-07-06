@@ -5,7 +5,7 @@ import {
   createAgentConnection,
   type AgentStreamEvent,
 } from "../lib/signalr";
-import { api, uploadFile, type StoredFileInfo } from "../lib/api";
+import { api, uploadFile, type ModuleAgent, type StoredFileInfo } from "../lib/api";
 import { messageId, runAgui } from "../lib/agui";
 import { parseAttachmentRefs, withAttachmentRefs } from "../lib/attachments";
 import { useInfo } from "../hooks/useInfo";
@@ -37,6 +37,8 @@ interface ChatPanelProps {
   transport?: "agui" | "signalr";
   /** Example prompts shown as one-click starters when the conversation is empty. */
   suggestedPrompts?: string[];
+  /** Selectable agents for this module (tenant profiles + module-shipped) — drives the agent picker. */
+  agents?: ModuleAgent[];
   /** When set, resume this conversation (load its history); when undefined, a fresh conversation. */
   conversationId?: string;
   /** Called when a brand-new conversation gets its server id (so a parent can select/refresh the list). */
@@ -70,6 +72,7 @@ export function ChatPanel({
   moduleId,
   transport = "agui",
   suggestedPrompts,
+  agents,
   conversationId,
   onConversationStarted,
   onNewChat,
@@ -84,6 +87,9 @@ export function ChatPanel({
   const [failedText, setFailedText] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
+  // Claude-Code-style per-turn composition: "" = the default agent / default model.
+  const [agent, setAgent] = useState("");
+  const [model, setModel] = useState("");
   const queryClient = useQueryClient();
   const { data: info } = useInfo();
 
@@ -329,6 +335,8 @@ export function ChatPanel({
       moduleId,
       conversationId: conversationIdRef.current,
       message: text,
+      agent: agent || undefined,
+      model: model || undefined,
     };
 
     subscriptionRef.current = connection.stream("Stream", request).subscribe({
@@ -403,7 +411,12 @@ export function ChatPanel({
 
     void (async () => {
       try {
-        for await (const evt of runAgui(moduleId, text, { threadId, signal: controller.signal })) {
+        for await (const evt of runAgui(moduleId, text, {
+          threadId,
+          signal: controller.signal,
+          agent: agent || undefined,
+          model: model || undefined,
+        })) {
           switch (evt.type) {
             case "TEXT_MESSAGE_CONTENT": {
               const delta = typeof evt.delta === "string" ? evt.delta : "";
@@ -777,6 +790,51 @@ export function ChatPanel({
           </button>
         )}
       </form>
+
+      {/* Per-turn composition, Claude-Code-style: pick the agent and model the next turn runs on.
+          Rendered only when the deployment/module actually offers a choice. */}
+      {((agents?.length ?? 0) > 0 || (info?.availableModels?.length ?? 0) > 0) && (
+        <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+          {(agents?.length ?? 0) > 0 && (
+            <label className="inline-flex items-center gap-1">
+              Agent
+              <select
+                aria-label="Agent"
+                value={agent}
+                onChange={(e) => setAgent(e.target.value)}
+                title={agents!.find((a) => a.name === agent)?.description ?? undefined}
+                className="focus-ring rounded border border-slate-300 bg-white px-1.5 py-0.5 text-xs dark:border-slate-600 dark:bg-slate-800"
+              >
+                <option value="">Default</option>
+                {agents!.map((a) => (
+                  <option key={a.name} value={a.name}>
+                    {a.name}
+                    {a.isDefault ? " (default)" : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {(info?.availableModels?.length ?? 0) > 0 && (
+            <label className="inline-flex items-center gap-1">
+              Model
+              <select
+                aria-label="Model"
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                className="focus-ring rounded border border-slate-300 bg-white px-1.5 py-0.5 text-xs dark:border-slate-600 dark:bg-slate-800"
+              >
+                <option value="">Default</option>
+                {info!.availableModels.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+        </div>
+      )}
     </div>
   );
 }
