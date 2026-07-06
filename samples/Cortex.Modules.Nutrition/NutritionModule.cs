@@ -62,7 +62,6 @@ public sealed class NutritionModule : IModule
                 Name = "log_meal",
                 Description = "Log a meal (food + grams) to the tenant's food diary.",
                 Permission = Permissions.ForTool(Id, "log_meal"),
-                Audit = true,
             },
             new ToolDescriptor
             {

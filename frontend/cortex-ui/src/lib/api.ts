@@ -251,6 +251,12 @@ export interface NotificationInfo {
   readAt?: string;
 }
 
+/** Webhook delivery config, from GET /api/admin/notification-settings — the secret is write-only. */
+export interface NotificationSettings {
+  webhookUrl: string | null;
+  hasWebhookSecret: boolean;
+}
+
 /** The one-call tenant health snapshot, from GET /api/admin/ops. */
 export interface OpsSnapshot {
   jobs: {
@@ -565,5 +571,11 @@ export const api = {
     deleteAgentProfile: (id: string) => apiSend(`/api/admin/agent-profiles/${id}`, "DELETE"),
     usage: (days = 30) => apiGet<UsageReport>(`/api/admin/usage?days=${days}`),
     ops: () => apiGet<OpsSnapshot>("/api/admin/ops"),
+    notificationSettings: () => apiGet<NotificationSettings>("/api/admin/notification-settings"),
+    setNotificationSettings: (settings: {
+      webhookUrl: string | null;
+      /** Write-only: undefined/null = keep the stored secret, non-empty = replace, "" = clear. */
+      webhookSecret?: string | null;
+    }) => apiSend("/api/admin/notification-settings", "PUT", settings),
   },
 };

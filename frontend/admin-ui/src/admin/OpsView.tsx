@@ -1,4 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@cortex/ui";
 
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
@@ -22,6 +23,139 @@ function Stat({ label, value, alarm = false }: { label: string; value: string; a
         {value}
       </dd>
     </div>
+  );
+}
+
+const inputClass =
+  "w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 dark:border-slate-600 dark:bg-slate-800";
+
+/**
+ * Webhook delivery settings (GET/PUT /api/admin/notification-settings). The signing secret is
+ * write-only: the server only ever reports that one is on file — null keeps it, "" clears it.
+ * Requires platform.notifications.manage; the read fails harmlessly for operators without it.
+ */
+function NotificationDeliveryCard() {
+  const qc = useQueryClient();
+  const settings = useQuery({
+    queryKey: ["admin", "notification-settings"],
+    queryFn: api.admin.notificationSettings,
+    retry: false,
+  });
+  const [url, setUrl] = useState("");
+  const [secret, setSecret] = useState("");
+  const [clearSecret, setClearSecret] = useState(false);
+
+  useEffect(() => {
+    if (settings.data) {
+      setUrl(settings.data.webhookUrl ?? "");
+      setSecret("");
+      setClearSecret(false);
+    }
+  }, [settings.data]);
+
+  const save = useMutation({
+    mutationFn: () =>
+      api.admin.setNotificationSettings({
+        webhookUrl: url.trim() || null,
+        // Write-only contract: null keeps the stored secret, "" clears it, a value replaces it.
+        webhookSecret: clearSecret ? "" : secret.trim() || null,
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["admin", "notification-settings"] });
+      void qc.invalidateQueries({ queryKey: ["admin", "ops"] });
+    },
+  });
+
+  if (settings.isError) {
+    return (
+      <Card title="Notification delivery">
+        <p className="text-sm text-slate-500 dark:text-slate-400">
+          Requires the platform.notifications.manage permission.
+        </p>
+      </Card>
+    );
+  }
+
+  // Don't offer the form until the stored values arrive — the prefill effect above would
+  // otherwise overwrite anything typed in the meantime.
+  if (settings.isPending) {
+    return (
+      <Card title="Notification delivery">
+        <p className="text-sm text-slate-500 dark:text-slate-400">Loading…</p>
+      </Card>
+    );
+  }
+
+  const urlInvalid = url.trim() !== "" && !/^https?:\/\/\S+$/.test(url.trim());
+  return (
+    <Card title="Notification delivery">
+      <form
+        className="space-y-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!urlInvalid) save.mutate();
+        }}
+      >
+        <div className="space-y-1">
+          <label htmlFor="webhook-url" className="block text-sm font-medium text-slate-700 dark:text-slate-200">
+            Webhook URL
+          </label>
+          <input
+            id="webhook-url"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="https://example.com/hooks/cortex — blank disables delivery"
+            className={inputClass}
+          />
+          {urlInvalid && <p className="text-xs text-red-600">Enter an absolute http(s) URL, or leave blank.</p>}
+        </div>
+        <div className="space-y-1">
+          <label htmlFor="webhook-secret" className="block text-sm font-medium text-slate-700 dark:text-slate-200">
+            Signing secret
+          </label>
+          <input
+            id="webhook-secret"
+            type="password"
+            autoComplete="off"
+            value={secret}
+            onChange={(e) => {
+              setSecret(e.target.value);
+              setClearSecret(false);
+            }}
+            placeholder={
+              settings.data?.hasWebhookSecret
+                ? "A secret is on file — enter a new one to replace it"
+                : "Used to sign deliveries (X-Cortex-Signature)"
+            }
+            className={inputClass}
+          />
+          <p className="text-xs text-slate-400">
+            Stored write-only in the secret vault — never shown again, only replaced or cleared.
+          </p>
+          {settings.data?.hasWebhookSecret && (
+            <label className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+              <input
+                type="checkbox"
+                checked={clearSecret}
+                onChange={(e) => {
+                  setClearSecret(e.target.checked);
+                  setSecret("");
+                }}
+              />
+              Clear the stored secret
+            </label>
+          )}
+        </div>
+        {save.isError && <p className="text-xs text-red-600">{(save.error as Error).message}</p>}
+        <button
+          type="submit"
+          disabled={urlInvalid || settings.isPending || save.isPending}
+          className="focus-ring rounded bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-500 disabled:opacity-40"
+        >
+          {save.isPending ? "Saving…" : "Save"}
+        </button>
+      </form>
+    </Card>
   );
 }
 
@@ -121,10 +255,11 @@ export function OpsView() {
             {d.ai.maxMonthlyTokens > 0
               ? `Monthly budget: ${d.ai.maxMonthlyTokens.toLocaleString()} tokens.`
               : "No monthly budget set (unlimited)."}
-            {" "}
-            Webhook delivery: {d.notifications.webhookConfigured ? "configured" : "not configured"}.
           </p>
         </Card>
+
+        {/* Webhook config is editable right where its health is reported. */}
+        <NotificationDeliveryCard />
       </div>
     </div>
   );

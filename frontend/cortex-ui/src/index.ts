@@ -81,6 +81,7 @@ export type {
   AiSettings,
   AgentProfile,
   NotificationInfo,
+  NotificationSettings,
   OpsSnapshot,
   AdminUser,
   ToolCall,
