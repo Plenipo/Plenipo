@@ -314,3 +314,122 @@ Content-Type: application/json
 X-Hub-Signature-256: sha256=<hmac-of-raw-body>
 
 {"object":"whatsapp_business_account","entry":[{"id":"waba-1","changes":[{"field":"messages","value":{"messaging_product":"whatsapp","contacts":[{"wa_id":"5215550100","profile":{"name":"Dev"}}],"messages":[{"id":"wamid.local-1","from":"5215550100","type":"text","text":{"body":"How much did I spend on groceries?"}}]}}]}]}
+
+# ── Admin: agent profiles, AI settings, tenants, notifications, ops ─────────
+# (Added in the coherence pass — these landed after the original catalog.)
+
+### Agent profiles — list (optionally ?moduleId=legal)
+GET {{baseUrl}}/api/admin/agent-profiles
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Agent profiles — upsert (per-agent instructions + tool selection + model)
+PUT {{baseUrl}}/api/admin/agent-profiles
+Content-Type: application/json
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+{ "moduleId": "legal", "name": "Litigation voice", "instructions": "Answer tersely, litigation posture.", "mode": "Append", "isDefault": true, "toolNames": null, "model": null }
+
+### Agent profiles — delete
+DELETE {{baseUrl}}/api/admin/agent-profiles/00000000-0000-0000-0000-000000000000
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### AI settings — read (provider connection + prompts + budgets; the key is write-only)
+GET {{baseUrl}}/api/admin/ai-settings
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### AI settings — switch the tenant's provider at runtime (apiKey: null=keep, ""=clear, value=replace)
+PUT {{baseUrl}}/api/admin/ai-settings
+Content-Type: application/json
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+{ "systemPrompt": null, "maxConversationTokens": null, "maxMonthlyTokens": null, "provider": "Mock", "model": "demo-model", "endpoint": null, "apiKey": null }
+
+### Create a tenant (operator-only: platform.tenants.manage)
+POST {{baseUrl}}/api/admin/tenants
+Content-Type: application/json
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+{ "name": "Acme Legal LLP", "slug": "acme-legal" }
+
+### Instruction provenance — resolve an assistant message's InstructionsHash to the exact prompt
+GET {{baseUrl}}/api/admin/instruction-snapshots/0000000000000000000000000000000000000000000000000000000000000000
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Notification settings — webhook delivery (secret is write-only)
+GET {{baseUrl}}/api/admin/notification-settings
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Ops snapshot — jobs, connectors, RAG, notifications, AI budget at a glance
+GET {{baseUrl}}/api/admin/ops
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### My notifications (self-scoped inbox)
+GET {{baseUrl}}/api/notifications
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+# ── Legal — the daily-practice surface (docketing, tasks, time, drill-down) ─
+
+### Chat against the LEGAL module over AG-UI
+POST {{baseUrl}}/api/agui/legal
+Content-Type: application/json
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+{ "messages": [ { "id": "m1", "role": "user", "content": "List my matters" } ] }
+
+### Matters (drives the Matters tab; each row drills into /detail)
+GET {{baseUrl}}/api/legal/matters
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### One matter's working file (the drill-down detail document)
+GET {{baseUrl}}/api/legal/matters/00000000-0000-0000-0000-000000000000/detail
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Open deadlines across matters (soonest first, overdue flagged)
+GET {{baseUrl}}/api/legal/deadlines
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Open tasks across matters
+GET {{baseUrl}}/api/legal/tasks
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Recent time entries (narratives + billable flag)
+GET {{baseUrl}}/api/legal/time
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}
+
+### Playbook rules (the review standard; POST/DELETE are library-manage-gated)
+GET {{baseUrl}}/api/legal/playbook
+X-Dev-Subject: {{subject}}
+X-Dev-Tenant: {{tenant}}
+X-Dev-Roles: {{roles}}

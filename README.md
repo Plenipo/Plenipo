@@ -78,7 +78,7 @@ tests/                               # Cortex.Application.Tests, Cortex.Infrastr
 samples/Cortex.Samples.slnx          # example apps built ON the platform (NuGet in prod; ProjectReference for dev)
 ├── Cortex.Modules.Finance/          # the-ledger vertical — stateful, learns categories from corrections
 ├── Cortex.Modules.Nutrition/        # NutriForge vertical — food catalog + persisted food diary
-├── Cortex.Modules.Legal/            # the-lawyer vertical — stateless clause library + drafting
+├── Cortex.Modules.Legal/            # the-lawyer vertical — matters, docketing, time, clause library, drafting
 ├── Cortex.Sample.Host/              # runnable host wiring all three modules
 └── Cortex.Sample.AppHost/           # Aspire orchestration for the sample (Postgres ×2, Redis, mock chat)
 
@@ -195,8 +195,9 @@ The short version:
 
 The dashboard picks up the new tabs automatically; the agent gains the new tools (each gated by permission).
 A module may own persistence (its own `DbContext` + schema, migrated via `IModule.MigrateAsync`) or be
-stateless — Finance (a ledger) and Nutrition (a food diary under the `nutrition` schema) are stateful;
-Legal is stateless.
+stateless — Finance (a ledger), Nutrition (a food diary under the `nutrition` schema), and Legal (matters,
+deadlines, tasks, time, and the firm's clause library under the `legal` schema) are all stateful; the
+Tasks tutorial module shows the minimal stateful shape.
 
 ## Consuming Cortex as NuGet packages
 
@@ -259,7 +260,7 @@ stays consistent** across every Cortex deployment:
   name/logo, and **dark mode** — a persisted light/dark/system `ThemeToggle` ships in both app headers).
   A product brands and composes it; the base library carries no vertical-specific and no admin code.
 - **`@cortex/admin-ui`** (`frontend/admin-ui`) — the **admin console**, a standalone app (not a library) that
-  owns the Security / Users & Roles / Token Usage / Audit views. It reuses `@cortex/ui`'s client layer for API
+  owns the administration views: Roles (with the live permission map in-page), Users, Modules, Integrations, Tenants, AI Settings, Agent Profiles, Token Usage, Audit Log, and Operations. It reuses `@cortex/ui`'s client layer for API
   access and is served at `/admin` (by its own Vite dev server, or by the API host via
   `app.UseCortexAdminConsole()`). This is the platform's analogue of OpenClaw's "control UI built into the
   gateway": every host gets a generic security/RBAC/usage/audit console for free, independent of its domain UI.

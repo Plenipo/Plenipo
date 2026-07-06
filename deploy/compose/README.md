@@ -61,8 +61,9 @@ Postgres, Key Vault — is `deploy/terraform/`.)
 
 | Concern | What to change |
 |---|---|
-| AI provider | `.env`: `AI_PROVIDER=OpenAI` + `AI_API_KEY=...` (or AzureOpenAI/Ollama) |
+| AI provider | `.env`: `AI_PROVIDER=OpenAI` + `AI_API_KEY=...` (or AzureOpenAI/Anthropic/Ollama). Tenants can also switch provider/model/key at runtime from the admin console (vaulted, write-only) |
 | Authentication | `CORTEX_ENVIRONMENT=Production` + configure the external IdP (see docs — the `X-Dev-*` scheme exists only in Development) |
 | Connector secrets | Set in the admin UI (write-only). To store them in Azure Key Vault instead of the DB: `Secrets__Provider=AzureKeyVault` + `Secrets__KeyVaultUri=...` on the api service |
 | TLS / domain | Put a reverse proxy (Caddy, Traefik, nginx) in front of port 8080 |
 | Skills | Mount or bake a skills directory; `Skills__Path` points at it |
+| MCP tool servers | Deploy-time like skills: `Mcp__Servers__0__Name=... Mcp__Servers__0__Transport=Stdio|Http ...` on the api service; each discovered tool is RBAC-gated as `tools.mcp.*` (granted to no role by default) and approval-gated unless the server opts out |

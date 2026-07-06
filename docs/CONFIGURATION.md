@@ -104,6 +104,26 @@ and change without a deploy.
 | `Cors:Origins` | Allowed SPA origins | Aspire injects these automatically in dev |
 | `ConnectionStrings` | `cortex-platform`, `cortex-audit`, `cortex-redis` | Env vars in containers |
 
+### Wiring MCP tool servers
+
+MCP servers are deploy-time configuration (like skills): the host operator declares them, and every
+discovered tool flows through the normal security spine — named `{server}_{tool}`, RBAC-gated as
+`tools.mcp.{server}_{tool}` (granted to **no role** by default; an admin opts users in, or grants
+`tools.mcp.*`), audited, and **approval-gated by default** (opt a read-only server out with
+`RequiresApproval: false`). An unreachable server just means its tools aren't offered — never a
+failed start or chat turn.
+
+```jsonc
+// cortex.settings.json or appsettings — Stdio (subprocess) or Http (Streamable HTTP)
+"Mcp": {
+  "Servers": [
+    { "Name": "github", "Transport": "Stdio", "Command": "npx",
+      "Arguments": ["-y", "@modelcontextprotocol/server-github"] },
+    { "Name": "search", "Transport": "Http", "Url": "https://mcp.example.com", "RequiresApproval": false }
+  ]
+}
+```
+
 ## Where runtime configuration lives (admin console, per tenant)
 
 Everything below is stored in the database, editable at `/admin` without a deploy, and RBAC-gated:

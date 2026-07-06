@@ -9,7 +9,7 @@ is prefixed `cortex` and scoped per environment (`dev`, `staging`, `prod`).
 | -------------- | ------------------------------------------------ |
 | API compute    | Azure Container Apps (`Cortex.Api`, scale-to-0)  |
 | Registry       | Azure Container Registry (managed-identity pull) |
-| Database       | PostgreSQL Flexible Server v16 — `cortex_platform` + `cortex_audit` |
+| Database       | PostgreSQL Flexible Server v17 — `cortex_platform` + `cortex_audit` |
 | Cache/backplane| Azure Cache for Redis                            |
 | Secrets        | Azure Key Vault (RBAC authorization)             |
 | App identity   | User-assigned Managed Identity (KV + ACR roles)  |

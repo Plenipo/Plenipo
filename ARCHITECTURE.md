@@ -148,8 +148,10 @@ Three layers, evaluated by `PermissionMatcher` (supports `*` and dotted wildcard
 On top of that: **pre-model-call tool filtering** (the agent only receives tools the caller can invoke),
 **human-in-the-loop approval** for side-effecting tools (blocked → recorded → an authorized human approves,
 which re-executes the exact recorded call), and **dual-database audit** of every tool call, data change, and
-token spend. The **Admin** area of the dashboard surfaces all of this: the full permission map, user/role
-management, token usage, and the audit log.
+token spend. The **admin console** surfaces all of this — and the runtime configuration around it: the role
+editor with the live permission map, users, per-tenant module and connector enablement, tenants, AI
+settings (runtime provider switching with vaulted keys), agent profiles (per-agent instructions,
+tools, and model), token usage, the audit log, and an operations snapshot.
 
 The LLM-backed chat endpoints (`/api/chat/stream`, `/api/agui/{moduleId}`) are additionally **rate-limited
 per user** — a fixed window partitioned by the caller's `sub` claim, a cost/abuse backstop so one principal

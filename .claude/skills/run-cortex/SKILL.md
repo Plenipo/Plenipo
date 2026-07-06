@@ -161,7 +161,7 @@ dev appsettings didn't load — re-check the **WorkingDirectory** gotcha above.
 **SignalR** is the other transport (hub at `/hubs/agent`, method `Stream`); the
 React `ChatPanel` uses it. Both go through the same authorized, audited runner.
 
-Module ids to chat against: `finance`, `nutrition`.
+Module ids to chat against: `finance`, `nutrition`, `legal`.
 
 ## Test the admin / security / usage features
 

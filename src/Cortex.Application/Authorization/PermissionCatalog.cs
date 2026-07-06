@@ -23,7 +23,7 @@ public static class PermissionCatalog
         new(Permissions.ManageRoles, PlatformCategory, "Assign roles and grant or revoke permissions."),
         new(Permissions.ManageModules, PlatformCategory, "Enable or disable domain modules for a tenant."),
         new(Permissions.ManageConnectors, PlatformCategory, "Enable, disable, and configure data-source connectors for a tenant."),
-        new(Permissions.ManageAiSettings, PlatformCategory, "Configure the tenant's AI assistant (system prompt, token budget)."),
+        new(Permissions.ManageAiSettings, PlatformCategory, "Configure the tenant's AI: the provider connection (model, vaulted API key), system prompt, token budgets, agent profiles, and instruction-snapshot lookup."),
         new(Permissions.ManageNotifications, PlatformCategory, "Configure notification delivery (webhook URL and signing secret)."),
         new(Permissions.ViewAuditLog, PlatformCategory, "Read the audit log and token-usage telemetry."),
         new(Permissions.UseChat, ChatCategory, "Start conversations and message the agent."),

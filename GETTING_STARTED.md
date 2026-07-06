@@ -60,10 +60,12 @@ Open **http://localhost:5173** (the domain UI) and you can:
 - Switch modules (Finance / Nutrition / Legal) and see server-driven tabs — Finance ships with a sample
   ledger, so its **Transactions** and **Budgets** tabs are populated out of the box.
 - Click **Admin ↗** (you're the seeded `system_admin`) to open the **admin console** at
-  **http://localhost:5174/admin**: the **Security** map of every tool + the permission it requires, a
-  schema-driven **Roles** editor (toggle what each role grants — try giving `user` the
-  `chat.approvals.manage` permission and watch the approvals gate open for that role), **Users**,
-  **Token Usage**, and the **Audit Log**. (In an integrated host the console is served by the API itself
+  **http://localhost:5174/admin**: a schema-driven **Roles** editor with the live permission map as an
+  in-page reference (toggle what each role grants — try giving `user` the `chat.approvals.manage`
+  permission and watch the approvals gate open for that role), **Users**, per-tenant **Modules** and
+  **Integrations** (connectors), **Tenants**, **AI Settings** (switch provider/model at runtime, BYO
+  API key), **Agent Profiles** (per-agent instructions, tools, and model), **Token Usage**, the
+  **Audit Log**, and **Operations**. (In an integrated host the console is served by the API itself
   at `/admin` — see [ARCHITECTURE.md](ARCHITECTURE.md#frontend).)
 
 ### See the security pipeline — no API key needed
@@ -79,7 +81,7 @@ real model would, so you can witness Cortex's signature capability immediately:
 2. Now send: *"Record a transaction for me."* Recording money is a **side-effecting** tool, so the agent
    is **blocked pending your approval** — it never auto-runs. Approve or reject it from the **Approvals**
    panel. That's the human-in-the-loop gate, working with zero configuration.
-3. In the admin console, open **Security** to see *why*: every tool maps to a permission, and the model
+3. In the admin console, open **Roles** and expand the **Permission reference** to see *why*: every tool maps to a permission, and the model
    only ever receives the tools the signed-in user is allowed to call (filtered **before** the request is built).
 
 > No identity provider is needed in development — the UI authenticates with `X-Dev-*` headers as a

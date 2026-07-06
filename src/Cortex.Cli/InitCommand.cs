@@ -258,6 +258,10 @@ public sealed class InitCommand : Command<InitCommand.Settings>
               · [bold]Modules[/] — enable this system's modules per tenant
               · [bold]Integrations[/] — enable data-source connectors (Azure Blob, local folder, Cortex peer)
               · [bold]Roles[/] — tune what each role may do
+              · [bold]AI Settings / Agent Profiles[/] — per-tenant provider switching and per-agent composition
+
+            [bold]Not wizard-covered:[/] MCP tool servers are declared by hand in the "Mcp" section of
+            cortex.settings.json (see docs/CONFIGURATION.md → "Wiring MCP tool servers").
             """);
     }
 }
