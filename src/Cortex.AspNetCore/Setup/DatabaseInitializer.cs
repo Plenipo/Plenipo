@@ -137,7 +137,7 @@ public static class DatabaseInitializer
 
         await platform.SaveChangesAsync(cancellationToken);
 
-        await EnsureRolePermissionsSeededAsync(platform, tenant.Id, cancellationToken);
+        await EnsureRolePermissionsSeededAsync(platform, tenant.Id, RoleBaseline.Merge(services.GetServices<ProductRole>()), cancellationToken);
     }
 
     /// <summary>
@@ -150,6 +150,7 @@ public static class DatabaseInitializer
     public static async Task EnsureRolePermissionsSeededAsync(
         PlatformDbContext platform,
         Guid tenantId,
+        IReadOnlyDictionary<string, string[]> baseline,
         CancellationToken cancellationToken = default)
     {
         // RolePermission is tenant-owned, but no ambient tenant is set during startup initialization, so
@@ -161,7 +162,7 @@ public static class DatabaseInitializer
             return;
         }
 
-        foreach (var (role, defaults) in RolePermissions.Defaults)
+        foreach (var (role, defaults) in baseline)
         {
             foreach (var permission in defaults)
             {

@@ -46,7 +46,7 @@ app.Run();
 | 5 | Deliver notifications your way (SMS, chat-ops, …) | `INotificationChannel` + `AddCortexNotificationChannel<T>()` — fan-out is best-effort per channel; in-app inbox is always the baseline. Email is built in: configure the `Email:` section | `src/Cortex.Infrastructure/Notifications/EmailNotificationChannel.cs` |
 | 6 | Add product-wide agent tools (offered in every module's chat) | `IPlatformToolSource` + `AddCortexPlatformTools<T>()` — same RBAC gate, approval flags, and audit as everything else | `src/Cortex.Infrastructure/Documents/DocumentToolSource.cs` |
 | 7 | Brand the workspace UI | `<CortexApp branding={{ name, logo }} moduleUi={[…]} />` — name/logo in the shell, custom React per tab via the module UI registry; everything else stays server-driven | `frontend/cortex-ui/README.md` |
-| 8 | Shape identity and roles | `Auth:` config — `PermissionSource` (`Database`/`Token`), `DefaultRole` (what a JIT user gets when their token asserts nothing; empty = permission-less). Role→permission baselines are runtime-editable per tenant in Admin → Roles | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) |
+| 8 | Shape identity and roles | `Auth:` config — `PermissionSource` (`Database`/`Token`), `DefaultRole` (what a JIT user gets when their token asserts nothing; empty = permission-less). Declare PRODUCT roles / reshape built-in baselines with `AddCortexRole("paralegal", [...])` — seeded into every tenant, runtime-editable afterwards in Admin → Roles. `system_admin` is never customizable | `samples/Cortex.Sample.Host/Program.cs` |
 | 9 | Swap infrastructure pieces | `ISecretVault` (DataProtection/Key Vault), `IOcrEngine`, `IEmbeddingGenerator`, `ISmtpTransport` — one DI registration each | `src/Cortex.Infrastructure` |
 
 ## Rules the platform holds for you (don't fight them)
@@ -70,9 +70,6 @@ app.Run();
   your product's own frontend for now.
 - **Inbound conversation channels** — WhatsApp is the only inbound lane; an inbound-channel
   SDK is on the roadmap. Outbound (notification) channels are open — seam #5.
-- **Role baseline seeding** — the four built-in roles' initial permission maps are fixed at
-  first-run (though runtime-editable per tenant afterwards); a host-supplied seeding seam is
-  on the roadmap.
 
 When one of these blocks you, open an issue rather than forking — the seam list above grew
 exactly that way.
