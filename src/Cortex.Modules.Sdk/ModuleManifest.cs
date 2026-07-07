@@ -51,6 +51,12 @@ public sealed record ModuleManifest
     public IReadOnlyList<AgentDescriptor> Agents { get; init; } = [];
 
     /// <summary>
+    /// Named multi-agent workflows this module ships (sequential chains of its agents),
+    /// selectable in the chat's picker alongside <see cref="Agents"/>. Optional.
+    /// </summary>
+    public IReadOnlyList<WorkflowDescriptor> Workflows { get; init; } = [];
+
+    /// <summary>
     /// Optional directory of agent-skill bundles ({skill-name}/SKILL.md) this module ships,
     /// resolved like the global <c>Skills:Path</c> (relative to the app base). Module skills are
     /// advertised and slash-invocable ONLY in this module's chat; like all skills they are

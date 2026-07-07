@@ -86,6 +86,33 @@ public sealed class AuthorizedAgentRunner(
         // connection (a tenant may run its own provider + vaulted key; SaaS bring-your-own-key).
         var aiSettings = await tenantAiSettings.ResolveAsync(cancellationToken);
 
+        // A picked name may be a module WORKFLOW: a sequential chain of the module's agents. Each
+        // step runs as a full authorized turn through this very method (same RBAC, budgets,
+        // approvals, audit), with the previous step's output handed to the next. Steps must be
+        // agents — workflows never nest.
+        if (!string.IsNullOrWhiteSpace(request.Agent))
+        {
+            var workflow = manifest.Workflows.FirstOrDefault(
+                w => string.Equals(w.Name, request.Agent, StringComparison.Ordinal));
+            if (workflow is not null)
+            {
+                if (workflow.AgentNames.Count == 0 ||
+                    workflow.AgentNames.Any(n => manifest.Workflows.Any(w => string.Equals(w.Name, n, StringComparison.Ordinal))))
+                {
+                    yield return AgentStreamEvent.Failed(
+                        $"Workflow '{workflow.Name}' is misdeclared: it needs at least one step, and steps must be agents, not workflows.");
+                    yield break;
+                }
+
+                await foreach (var evt in RunWorkflowAsync(workflow, request, cancellationToken))
+                {
+                    yield return evt;
+                }
+
+                yield break;
+            }
+        }
+
         // The agent for this turn: the one the user picked by name (tenant profile or manifest
         // agent — never a silent fallback when the name is unknown), else the default. Either way
         // it retasks or specializes the chatbot — different voice/policy, its own model, and (when
@@ -457,6 +484,67 @@ public sealed class AuthorizedAgentRunner(
         finally
         {
             await enumerator.DisposeAsync();
+        }
+    }
+
+
+    /// <summary>
+    /// Sequential workflow execution by composition: each step is a normal <see cref="RunAsync"/>
+    /// turn in the SAME conversation, so every platform guarantee applies per step and the
+    /// transcript shows the full chain (handoffs included). Only the last step's Completed event
+    /// reaches the client; a failed step fails the workflow rather than running the next blind.
+    /// </summary>
+    private async IAsyncEnumerable<AgentStreamEvent> RunWorkflowAsync(
+        WorkflowDescriptor workflow,
+        AgentRunRequest request,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        Guid? conversationId = request.ConversationId;
+        var previousOutput = new StringBuilder();
+
+        for (var i = 0; i < workflow.AgentNames.Count; i++)
+        {
+            var stepName = workflow.AgentNames[i];
+            var stepMessage = i == 0
+                ? request.Message
+                : $"Workflow '{workflow.Name}', step {i + 1} of {workflow.AgentNames.Count} — do your part.\n" +
+                  $"Original request: {request.Message}\n" +
+                  $"Output of the prior step:\n{previousOutput}";
+            previousOutput.Clear();
+
+            var step = request with { Agent = stepName, Message = stepMessage, ConversationId = conversationId };
+            if (workflow.AgentNames.Count > 1)
+            {
+                yield return AgentStreamEvent.Token($"{(i == 0 ? "" : "\n\n")}**{stepName}** ({i + 1}/{workflow.AgentNames.Count}):\n\n");
+            }
+
+            var failed = false;
+            await foreach (var evt in RunAsync(step, cancellationToken))
+            {
+                if (evt.Type == AgentStreamEventType.Token && evt.Text is not null)
+                {
+                    previousOutput.Append(evt.Text);
+                }
+
+                if (evt.Type == AgentStreamEventType.Completed)
+                {
+                    // Chain all steps into ONE conversation; only the last step completes the run.
+                    conversationId = evt.ConversationId ?? conversationId;
+                    if (i == workflow.AgentNames.Count - 1)
+                    {
+                        yield return evt;
+                    }
+                    continue;
+                }
+
+                failed |= evt.Type == AgentStreamEventType.Error;
+                yield return evt;
+            }
+
+            if (failed)
+            {
+                yield break;
+            }
         }
     }
 

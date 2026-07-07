@@ -77,6 +77,10 @@ public static class PlatformEndpoints
             .Concat(manifest.Agents
                 .Where(a => !profileNames.Contains(a.Name))
                 .Select(a => new ModuleAgentDto(a.Name, a.Description, a.IsDefault && !tenantHasDefault, a.Model)))
+            // Workflows share the picker (and the run request's Agent field); the description
+            // prefix is how the UI tells a chain from a single agent.
+            .Concat(manifest.Workflows
+                .Select(w => new ModuleAgentDto(w.Name, $"Workflow · {w.Description}", false, null)))
             .ToArray();
         var tabs = manifest.Tabs
             .Where(t => t.Permission is null || user.HasPermission(t.Permission))

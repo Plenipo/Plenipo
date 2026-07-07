@@ -120,6 +120,17 @@ public sealed class LegalModule : IModule
                 ToolNames = ["add_deadline", "list_deadlines", "complete_deadline", "add_task", "list_tasks", "complete_task", "list_matters"],
             },
         ],
+        // A shipped multi-agent chain: the drafter prepares the engagement language, then the
+        // docketing clerk turns its output into deadlines/tasks. Selectable like an agent.
+        Workflows =
+        [
+            new WorkflowDescriptor
+            {
+                Name = "engage-and-docket",
+                Description = "Draft the engagement terms, then docket the follow-up dates.",
+                AgentNames = ["drafter", "docketing"],
+            },
+        ],
         // The module's own skill bundles (skills/ in this project, copied to module-skills/legal
         // in the host output) — advertised and slash-invocable only in Legal's chat.
         SkillsPath = "module-skills/legal",
