@@ -452,87 +452,25 @@ public static class AdminEndpoints
         .WithName("Admin_CreateTenant");
 
         // One-call provisioning: tenant + first admin + licensed modules + AI budget + seat limit
-        // in a single transaction — the target a billing webhook calls when a subscription lands
-        // (docs/COMMERCIALIZATION.md), and a one-liner for operators today. Auto-audited.
+        // in a single transaction. The logic lives in ITenantProvisioningService — one code path
+        // shared with the billing worker (docs/COMMERCIALIZATION.md); this is the operator's door.
         group.MapPost("/tenants/provision", async (
-            [FromBody] ProvisionTenantRequest body, IModuleCatalog catalog, PlatformDbContext db, CancellationToken ct) =>
+            [FromBody] ProvisionTenantRequest body, Cortex.Application.Commerce.ITenantProvisioningService provisioning,
+            IModuleCatalog catalog, CancellationToken ct) =>
         {
-            var name = body.Name?.Trim();
-            var slug = body.Slug?.Trim().ToLowerInvariant();
-            var adminEmail = body.AdminEmail?.Trim();
-            if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(slug) || string.IsNullOrWhiteSpace(adminEmail))
-            {
-                return Results.BadRequest("name, slug, and adminEmail are required.");
-            }
+            var result = await provisioning.ProvisionAsync(new Cortex.Application.Commerce.ProvisionTenantCommand(
+                body.Name ?? "", body.Slug ?? "", body.AdminEmail ?? "",
+                body.AdminSubject, body.AdminDisplayName, body.Modules,
+                body.MaxSeats, body.MonthlyTokenBudget), ct);
 
-            if (!System.Text.RegularExpressions.Regex.IsMatch(slug, "^[a-z0-9][a-z0-9-]{0,62}$"))
+            return result.Error switch
             {
-                return Results.BadRequest("slug must be lowercase letters, digits, and hyphens (max 63 chars).");
-            }
-
-            if (body.MaxSeats is < 1)
-            {
-                return Results.BadRequest("maxSeats must be at least 1.");
-            }
-
-            if (body.MonthlyTokenBudget is < 0)
-            {
-                return Results.BadRequest("monthlyTokenBudget must be zero or greater.");
-            }
-
-            var unknownModules = (body.Modules ?? [])
-                .Where(m => !catalog.Manifests.Any(mf => string.Equals(mf.Id, m, StringComparison.Ordinal)))
-                .ToList();
-            if (unknownModules.Count > 0)
-            {
-                return Results.BadRequest($"Unknown module(s): {string.Join(", ", unknownModules)}.");
-            }
-
-            if (await db.Tenants.AnyAsync(t => t.Slug == slug, ct))
-            {
-                return Results.Conflict($"A tenant with slug '{slug}' already exists.");
-            }
-
-            var tenant = new Tenant { Name = name, Slug = slug, MaxSeats = body.MaxSeats };
-            db.Tenants.Add(tenant);
-
-            // The first admin. The subject must match what the IdP will present as `sub` for this
-            // person (dev auth: the X-Dev-Subject header). It defaults to the email — right for
-            // email-subject IdP setups and dev; in Token permission-source mode the row is mostly
-            // informational since roles come from the token.
-            var admin = new User
-            {
-                TenantId = tenant.Id,
-                Subject = string.IsNullOrWhiteSpace(body.AdminSubject) ? adminEmail : body.AdminSubject.Trim(),
-                Email = adminEmail,
-                DisplayName = body.AdminDisplayName?.Trim(),
+                Cortex.Application.Commerce.ProvisionError.Invalid => Results.BadRequest(result.ErrorDetail),
+                Cortex.Application.Commerce.ProvisionError.SlugTaken => Results.Conflict(result.ErrorDetail),
+                _ => Results.Created($"/api/admin/tenants/{result.TenantId}", new ProvisionedTenantDto(
+                    result.TenantId, body.Slug!.Trim().ToLowerInvariant(), result.AdminUserId, result.AdminSubject!,
+                    result.EnabledModules!.ToArray(), body.MaxSeats, body.MonthlyTokenBudget)),
             };
-            db.Users.Add(admin);
-            db.UserRoles.Add(new UserRole { TenantId = tenant.Id, UserId = admin.Id, Role = "tenant_admin" });
-
-            // Modules are default-ON; licensing a subset means explicitly disabling the rest.
-            if (body.Modules is not null)
-            {
-                var licensed = body.Modules.ToHashSet(StringComparer.Ordinal);
-                foreach (var manifest in catalog.Manifests.Where(m => !licensed.Contains(m.Id)))
-                {
-                    db.TenantModules.Add(new TenantModule { TenantId = tenant.Id, ModuleId = manifest.Id, IsEnabled = false });
-                }
-            }
-
-            // Platform-managed (metered) AI: cap spend with the monthly budget; the deployment's
-            // provider/key applies. BYO-key customers set their own connection later in AI Settings
-            // (a tenant-owned connection never falls back to the platform key).
-            if (body.MonthlyTokenBudget is { } budget)
-            {
-                db.TenantAiSettings.Add(new TenantAiSettings { TenantId = tenant.Id, MaxMonthlyTokens = budget });
-            }
-
-            await db.SaveChangesAsync(ct); // one transaction — all of it lands or none of it
-            return Results.Created($"/api/admin/tenants/{tenant.Id}", new ProvisionedTenantDto(
-                tenant.Id, tenant.Slug, admin.Id, admin.Subject,
-                (body.Modules ?? catalog.Manifests.Select(m => m.Id)).ToArray(),
-                tenant.MaxSeats, body.MonthlyTokenBudget));
         })
         .RequireAuthorization(PermissionRequirement.PolicyName(Permissions.ManageTenants))
         .WithName("Admin_ProvisionTenant");
