@@ -3,7 +3,8 @@
 How a domain product built on Cortex (the-lawyer, etc.) is sold and operated: shared SaaS
 tenants, per-customer AI keys and metering, and on-demand dedicated deployments. This document
 maps the business flow onto mechanisms that exist today and names the gaps that are deliberate
-next steps.
+next steps. The end-to-end commercial pipeline (site, Stripe subscriptions, payment-driven
+auto-provisioning) is planned in [COMMERCIALIZATION.md](COMMERCIALIZATION.md).
 
 ## Two offering shapes
 
