@@ -1,4 +1,5 @@
 using Cortex.Application.Commerce;
+using Cortex.Sample.Host;
 using Cortex.AspNetCore.Connectors;
 using Cortex.AspNetCore.Hosting;
 using Cortex.AspNetCore.Modules;
@@ -38,6 +39,10 @@ builder.AddCortexConnector<GoogleDriveConnector>();
 
 // What this host SELLS (docs/COMMERCIALIZATION.md): the plan — not checkout metadata — decides
 // what a purchase grants. The sample sells the Legal vertical in the three standard tiers.
+// Both wave-1 host seams together: after any tenant is provisioned (operator call or a
+// billing webhook), email the new admin their sign-in details. Best-effort by design.
+builder.Services.AddCortexTenantProvisionedHook<WelcomeEmailHook>();
+
 builder.Services.AddCortexProduct(new ProductOffering
 {
     ProductId = "the-lawyer",

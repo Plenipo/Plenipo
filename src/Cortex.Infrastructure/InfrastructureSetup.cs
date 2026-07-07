@@ -305,6 +305,9 @@ public static class InfrastructureSetup
         services.AddScoped<INotifier, Notifier>();
         services.AddScoped<INotificationWebhookConfigReader, NotificationWebhookConfigReader>();
         services.AddScoped<INotificationChannel, WebhookNotificationChannel>();
+        services.Configure<EmailOptions>(builder.Configuration.GetSection(EmailOptions.SectionName));
+        services.AddSingleton<ISmtpTransport, SmtpClientTransport>();
+        services.AddScoped<INotificationChannel, EmailNotificationChannel>(); // no-op until Email: is configured
         services.AddHttpClient(WebhookNotificationChannel.HttpClientName,
             client => client.Timeout = TimeSpan.FromSeconds(10));
         services.AddScoped<IConversationStore, ConversationStore>();
