@@ -4,6 +4,7 @@ using Cortex.AspNetCore.Hosting;
 using Cortex.AspNetCore.Modules;
 using Cortex.Connectors.AzureBlob;
 using Cortex.Connectors.LocalFolder;
+using Cortex.Connectors.GoogleDrive;
 using Cortex.Connectors.MsGraph;
 using Cortex.Connectors.Peer;
 using Cortex.Modules.Finance;
@@ -33,6 +34,7 @@ builder.AddCortexConnector<LocalFolderConnector>();
 builder.AddCortexConnector<AzureBlobConnector>();
 builder.AddCortexConnector<CortexPeerConnector>(); // verticals are separate systems; this is how they talk
 builder.AddCortexConnector<MsGraphConnector>();
+builder.AddCortexConnector<GoogleDriveConnector>();
 
 // What this host SELLS (docs/COMMERCIALIZATION.md): the plan — not checkout metadata — decides
 // what a purchase grants. The sample sells the Legal vertical in the three standard tiers.
