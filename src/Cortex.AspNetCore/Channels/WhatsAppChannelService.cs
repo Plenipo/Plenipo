@@ -109,6 +109,17 @@ public sealed class WhatsAppChannelService(
 
         if (user is null)
         {
+            // Same seat gate as interactive sign-in: a full tenant admits no new WhatsApp users.
+            if (tenant.MaxSeats is { } maxSeats)
+            {
+                var activeSeats = await db.Users.CountAsync(u => u.IsActive, cancellationToken);
+                if (activeSeats >= maxSeats)
+                {
+                    logger.LogWarning("WhatsApp user {Subject} refused: tenant seat limit {MaxSeats} reached.", subject, maxSeats);
+                    return;
+                }
+            }
+
             user = new User
             {
                 TenantId = tenant.Id,

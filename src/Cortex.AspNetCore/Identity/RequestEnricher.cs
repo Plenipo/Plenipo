@@ -73,6 +73,26 @@ public sealed class RequestEnricher(
 
         if (user is null)
         {
+            // Seat limit from the subscription (Tenant.MaxSeats; null = unlimited): a full tenant
+            // admits no NEW users. Existing users keep signing in; deactivating one frees a seat.
+            if (tenant.MaxSeats is { } maxSeats)
+            {
+                var activeSeats = await db.Users.CountAsync(u => u.IsActive, cancellationToken);
+                if (activeSeats >= maxSeats)
+                {
+                    await auditLog.RecordAuthEventAsync(new AuthAuditEntry
+                    {
+                        TenantId = tenant.Id,
+                        Subject = subject,
+                        UserDisplay = name,
+                        EventType = AuthAuditEventType.SeatLimitDenied,
+                        Detail = $"seat limit {maxSeats} reached",
+                        IpAddress = ipAddress,
+                    }, cancellationToken);
+                    return false;
+                }
+            }
+
             user = new User
             {
                 TenantId = tenant.Id,
