@@ -203,9 +203,28 @@ public sealed class IntegrationFixture : IAsyncLifetime
                 // refresh, revoke-on-disable) stays fully real.
                 services.AddSingleton<Cortex.Application.Connectors.IOAuthTokenClient>(new FakeOAuthTokenClient());
                 services.AddSingleton<Cortex.Connectors.MsGraph.IGraphApiClient>(new FakeGraphApiClient());
+                services.AddSingleton<Cortex.Connectors.GoogleDrive.IDriveApiClient>(new FakeDriveApiClient());
             });
         }
     }
+}
+
+/// <summary>A fake Google Drive with one canned document; responds only to a fake token.</summary>
+public sealed class FakeDriveApiClient : Cortex.Connectors.GoogleDrive.IDriveApiClient
+{
+    public Task<IReadOnlyList<Cortex.Connectors.GoogleDrive.DriveFile>> ListFilesAsync(
+        string accessToken, string? nameContains, CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<Cortex.Connectors.GoogleDrive.DriveFile>>(
+            accessToken.StartsWith("fake-access-", StringComparison.Ordinal)
+                ? [new("gdoc-1", "retainer-agreement.txt", 84, false)]
+                : []);
+
+    public Task<Cortex.Connectors.GoogleDrive.DriveFileContent?> DownloadAsync(
+        string accessToken, string fileId, CancellationToken cancellationToken = default) =>
+        Task.FromResult(accessToken.StartsWith("fake-access-", StringComparison.Ordinal) && fileId == "gdoc-1"
+            ? new Cortex.Connectors.GoogleDrive.DriveFileContent(
+                new MemoryStream("Retainer agreement between the firm and the client."u8.ToArray()), "text/plain")
+            : null);
 }
 
 /// <summary>A fake IdP token endpoint: any code exchanges into a deterministic token.</summary>

@@ -3,6 +3,7 @@ using Cortex.Application.Ai;
 using Cortex.Application.Approvals;
 using Cortex.Application.Auditing;
 using Cortex.Application.Authorization;
+using Cortex.Application.Channels;
 using Cortex.Application.Connectors;
 using Cortex.Application.Conversations;
 using Cortex.Application.Files;
@@ -236,6 +237,17 @@ public static class InfrastructureSetup
         var services = builder.Services;
 
         services.Configure<SkillsOptions>(builder.Configuration.GetSection(SkillsOptions.SectionName));
+        services.Configure<Cortex.Application.Commerce.CommerceOptions>(
+            builder.Configuration.GetSection(Cortex.Application.Commerce.CommerceOptions.SectionName));
+        services.AddScoped<Cortex.Application.Commerce.ITenantProvisioningService, Commerce.TenantProvisioningService>();
+        services.AddSingleton<Cortex.Application.Commerce.IProductOfferingCatalog, Cortex.Application.Commerce.ProductOfferingCatalog>();
+        services.AddHttpClient(nameof(Commerce.GitHubDedicatedEnvironmentProvisioner));
+        services.AddHttpClient(nameof(Commerce.StripeBillingMeter));
+        services.AddSingleton<Cortex.Application.Commerce.IBillingMeter, Commerce.StripeBillingMeter>();
+        services.AddHttpClient(nameof(Commerce.StripeCheckout));
+        services.AddSingleton<Cortex.Application.Commerce.IStripeCheckout, Commerce.StripeCheckout>();
+        services.AddSingleton<Cortex.Application.Commerce.IDedicatedEnvironmentProvisioner, Commerce.GitHubDedicatedEnvironmentProvisioner>();
+        services.AddHostedService<Commerce.BillingEventProcessor>(); // no-ops unless commerce is enabled
         services.AddSingleton<ISkillCatalog, FileSkillCatalog>();
 
         // The skill tools only exist as a tool source when skills are on — a deployment without
@@ -294,6 +306,9 @@ public static class InfrastructureSetup
         services.AddScoped<INotifier, Notifier>();
         services.AddScoped<INotificationWebhookConfigReader, NotificationWebhookConfigReader>();
         services.AddScoped<INotificationChannel, WebhookNotificationChannel>();
+        services.Configure<EmailOptions>(builder.Configuration.GetSection(EmailOptions.SectionName));
+        services.AddSingleton<ISmtpTransport, SmtpClientTransport>();
+        services.AddScoped<INotificationChannel, EmailNotificationChannel>(); // no-op until Email: is configured
         services.AddHttpClient(WebhookNotificationChannel.HttpClientName,
             client => client.Timeout = TimeSpan.FromSeconds(10));
         services.AddScoped<IConversationStore, ConversationStore>();
@@ -306,5 +321,8 @@ public static class InfrastructureSetup
         services.AddScoped<IApprovalStore, ApprovalStore>();
         services.AddScoped<ApprovalExecutor>();
         services.AddScoped<IAuthorizedAgentRunner, AuthorizedAgentRunner>();
+
+        // The channel-agnostic core every inbound conversation channel runs through (WhatsApp today).
+        services.AddScoped<IChannelTurnService, Channels.ChannelTurnService>();
     }
 }

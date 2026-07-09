@@ -71,6 +71,10 @@ public static class AguiEndpoints
             // existence check is tenant-filtered, so a foreign tenant's id falls through to the hash mapping.
             ConversationId = await ResolveConversationIdAsync(db, currentUser.TenantId ?? Guid.Empty, threadId, cancellationToken),
             Message = userMessage.Content,
+            // AG-UI carries client extensions in forwardedProps; ours are the composer's agent and
+            // model picks. The runner validates both — unknown names fail the run readably.
+            Agent = ReadForwardedProp(input.ForwardedProps, "agent"),
+            Model = ReadForwardedProp(input.ForwardedProps, "model"),
         };
 
         var messageId = $"msg_{Guid.CreateVersion7():N}";
@@ -165,6 +169,13 @@ public static class AguiEndpoints
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes($"{tenantId:N} {threadId}"));
         return new Guid(hash.AsSpan(0, 16));
     }
+
+    /// <summary>A string property from AG-UI forwardedProps; null when absent, non-object, or not a string.</summary>
+    private static string? ReadForwardedProp(JsonElement? props, string name) =>
+        props is { ValueKind: JsonValueKind.Object } obj &&
+        obj.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
 
     /// <summary>The AG-UI <c>RunAgentInput</c> request body (the subset Cortex consumes).</summary>
     public sealed record RunAgentInput

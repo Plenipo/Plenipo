@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using Cortex.AspNetCore.Auth;
 using Cortex.AspNetCore.Channels;
+using Cortex.AspNetCore.Commerce;
 using Cortex.AspNetCore.Endpoints;
 using Cortex.AspNetCore.Identity;
 using Cortex.AspNetCore.Middleware;
@@ -9,6 +10,7 @@ using Cortex.AspNetCore.RateLimiting;
 using Cortex.AspNetCore.Realtime;
 using Cortex.AspNetCore.Setup;
 using Cortex.Infrastructure;
+using Cortex.Infrastructure.Channels;
 using Microsoft.AspNetCore.SignalR;
 
 namespace Cortex.AspNetCore.Hosting;
@@ -73,8 +75,10 @@ public static class CortexHostSetup
         // SignalR + identity-enrichment hub filter, with a Redis backplane when Redis is configured.
         builder.Services.AddCortexRealtime(builder.Configuration);
 
-        // WhatsApp channel (Meta Cloud API webhook → authorized agent turns). Off unless configured.
+        // Inbound channels (docs/INBOUND_CHANNELS.md), both off unless configured:
+        // WhatsApp (Meta Cloud API webhook) and email intake (IMAP polling) → authorized agent turns.
         builder.Services.AddCortexWhatsAppChannel(builder.Configuration);
+        builder.Services.AddCortexEmailChannel(builder.Configuration);
 
         // Default to both dev front-ends: the domain UI (5173) and the admin console (5174). Override via config.
         var corsOrigins = builder.Configuration.GetSection("Cors:Origins").Get<string[]>()
@@ -125,6 +129,7 @@ public static class CortexHostSetup
         app.MapConnectorAdminEndpoints();
         app.MapConnectorOAuthEndpoints();
         app.MapAgui();
+        app.MapCommerceEndpoints();
         app.MapWhatsAppChannel();
         app.MapHub<AgentHub>("/hubs/agent");
         app.MapCortexModules();

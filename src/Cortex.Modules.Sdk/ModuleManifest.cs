@@ -42,4 +42,25 @@ public sealed record ModuleManifest
     /// exercise the module's tools (e.g. "Summarize my spending") without knowing what to type. Optional.
     /// </summary>
     public IReadOnlyList<string> SuggestedPrompts { get; init; } = [];
+
+    /// <summary>
+    /// Named agents this module ships (selectable in the chat's agent picker). The plain module
+    /// assistant — <see cref="AgentInstructions"/> with every permitted tool — always exists;
+    /// these specialize or retask it. Optional.
+    /// </summary>
+    public IReadOnlyList<AgentDescriptor> Agents { get; init; } = [];
+
+    /// <summary>
+    /// Named multi-agent workflows this module ships (sequential chains of its agents),
+    /// selectable in the chat's picker alongside <see cref="Agents"/>. Optional.
+    /// </summary>
+    public IReadOnlyList<WorkflowDescriptor> Workflows { get; init; } = [];
+
+    /// <summary>
+    /// Optional directory of agent-skill bundles ({skill-name}/SKILL.md) this module ships,
+    /// resolved like the global <c>Skills:Path</c> (relative to the app base). Module skills are
+    /// advertised and slash-invocable ONLY in this module's chat; like all skills they are
+    /// deploy-time content shipped with the host — never tenant uploads.
+    /// </summary>
+    public string? SkillsPath { get; init; }
 }

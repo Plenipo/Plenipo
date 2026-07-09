@@ -60,6 +60,17 @@ public sealed record ConnectorManifest
 
     /// <summary>Tools this connector exposes to the agent (metadata; executables registered separately).</summary>
     public IReadOnlyList<Cortex.Modules.Sdk.ToolDescriptor> Tools { get; init; } = [];
+
+    /// <summary>
+    /// Delegated connectors: the IdP's authorize-URL template. <c>{authority}</c> (if present) is
+    /// replaced with the tenant's configured Authority setting; a template WITHOUT the placeholder
+    /// (e.g. Google's fixed URL) makes the Authority setting optional. May carry fixed query
+    /// parameters (e.g. Google's <c>?access_type=offline&amp;prompt=consent</c>). Defaults fit Entra.
+    /// </summary>
+    public string OAuthAuthorizeUrlTemplate { get; init; } = "{authority}/oauth2/v2.0/authorize";
+
+    /// <summary>Delegated connectors: the IdP's token-endpoint template (same placeholder rules).</summary>
+    public string OAuthTokenUrlTemplate { get; init; } = "{authority}/oauth2/v2.0/token";
 }
 
 /// <summary>One admin-configurable connector setting (a field on the Integrations page).</summary>

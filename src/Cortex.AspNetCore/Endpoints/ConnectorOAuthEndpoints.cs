@@ -99,10 +99,12 @@ public static class ConnectorOAuthEndpoints
 
                 var values = await ((IConnectorSettings)http.RequestServices.GetRequiredService<ConnectorSettingsService>())
                     .GetAsync(connectorId, cancellationToken);
-                if (values is null || !values.TryGetValue("Authority", out var authority) ||
-                    !values.TryGetValue("ClientId", out var clientId))
+                var needsAuthority = manifest.OAuthAuthorizeUrlTemplate.Contains("{authority}", StringComparison.Ordinal);
+                string? authority = null;
+                if (values is null || !values.TryGetValue("ClientId", out var clientId) || string.IsNullOrWhiteSpace(clientId) ||
+                    (needsAuthority && (!values.TryGetValue("Authority", out authority) || string.IsNullOrWhiteSpace(authority))))
                 {
-                    return Results.Conflict(new { error = "The connector's Authority/ClientId settings are not configured." });
+                    return Results.Conflict(new { error = "The connector's ClientId (and Authority, where the IdP needs one) settings are not configured." });
                 }
 
                 var config = await logins.ResolveOAuthConfigAsync(connectorId, cancellationToken);
@@ -114,8 +116,13 @@ public static class ConnectorOAuthEndpoints
                     .Protect(JsonSerializer.Serialize(new OAuthState(connectorId, verifier)));
 
                 var redirectUri = $"{http.Request.Scheme}://{http.Request.Host}/api/connectors/{connectorId}/oauth/callback";
-                var authorizeUrl = $"{authority.TrimEnd('/')}/oauth2/v2.0/authorize" +
-                    $"?client_id={Uri.EscapeDataString(clientId)}" +
+                // The manifest's template decides the IdP's URL shape (Entra path, Google's fixed
+                // URL with extra params, …); we only append the standard auth-code+PKCE parameters.
+                var authorizeBase = manifest.OAuthAuthorizeUrlTemplate
+                    .Replace("{authority}", authority?.TrimEnd('/'), StringComparison.Ordinal);
+                var separator = authorizeBase.Contains('?') ? '&' : '?';
+                var authorizeUrl = authorizeBase +
+                    $"{separator}client_id={Uri.EscapeDataString(clientId)}" +
                     "&response_type=code" +
                     $"&redirect_uri={Uri.EscapeDataString(redirectUri)}" +
                     $"&scope={Uri.EscapeDataString(config?.Scopes ?? "offline_access")}" +

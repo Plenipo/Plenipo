@@ -21,8 +21,12 @@ namespace Cortex.Infrastructure.Authorization;
 public sealed class PermissionResolver(
     PlatformDbContext db,
     ICurrentUser currentUser,
-    IOptions<AuthorizationSourceOptions> authorizationSource) : IPermissionResolver
+    IOptions<AuthorizationSourceOptions> authorizationSource,
+    IEnumerable<ProductRole> productRoles) : IPermissionResolver
 {
+    private readonly Lazy<IReadOnlyDictionary<string, string[]>> _baseline =
+        new(() => RoleBaseline.Merge(productRoles));
+
     public async Task<IReadOnlySet<string>> ResolveAsync(ClaimsPrincipal principal, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(principal);
@@ -54,7 +58,7 @@ public sealed class PermissionResolver(
                 g => (IReadOnlyList<string>)g.Select(x => x.Permission).ToList(),
                 StringComparer.Ordinal);
 
-        permissions.UnionWith(RolePermissionResolution.PermissionsForRoles(roles, configuredByRole));
+        permissions.UnionWith(RolePermissionResolution.PermissionsForRoles(roles, configuredByRole, _baseline.Value));
 
         // 3. Explicit per-user grants for the provisioned user (tenant-filtered) — never in Token mode.
         if (!tokenSourced && currentUser.UserId is Guid uid)

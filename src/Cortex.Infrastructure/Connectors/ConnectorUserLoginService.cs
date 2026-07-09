@@ -18,6 +18,7 @@ public sealed class ConnectorUserLoginService(
     PlatformDbContext db,
     ICurrentUser currentUser,
     ConnectorSettingsService settings,
+    IConnectorCatalog catalog,
     IOAuthTokenClient oauth,
     ISecretVault vault) : IConnectorUserLogins
 {
@@ -98,10 +99,17 @@ public sealed class ConnectorUserLoginService(
     public async Task<OAuthClientConfig?> ResolveOAuthConfigAsync(string connectorId, CancellationToken cancellationToken = default)
     {
         var values = await ((Cortex.Connectors.Sdk.IConnectorSettings)settings).GetAsync(connectorId, cancellationToken);
+        // The manifest's template decides the token endpoint's shape; {authority} (when present)
+        // comes from the tenant's setting — fixed-URL IdPs like Google don't need one at all.
+        var template = catalog.TryGetManifest(connectorId, out var manifest) && manifest is not null
+            ? manifest.OAuthTokenUrlTemplate
+            : "{authority}/oauth2/v2.0/token";
+        var needsAuthority = template.Contains("{authority}", StringComparison.Ordinal);
+
+        string? authority = null;
         if (values is null ||
-            !values.TryGetValue("Authority", out var authority) ||
-            !values.TryGetValue("ClientId", out var clientId) ||
-            string.IsNullOrWhiteSpace(authority) || string.IsNullOrWhiteSpace(clientId))
+            !values.TryGetValue("ClientId", out var clientId) || string.IsNullOrWhiteSpace(clientId) ||
+            (needsAuthority && (!values.TryGetValue("Authority", out authority) || string.IsNullOrWhiteSpace(authority))))
         {
             return null;
         }
@@ -110,7 +118,8 @@ public sealed class ConnectorUserLoginService(
         var scopes = values.TryGetValue("Scopes", out var s) && !string.IsNullOrWhiteSpace(s)
             ? s
             : "offline_access";
-        return new OAuthClientConfig($"{authority.TrimEnd('/')}/oauth2/v2.0/token", clientId, clientSecret, scopes);
+        var tokenEndpoint = template.Replace("{authority}", authority?.TrimEnd('/'), StringComparison.Ordinal);
+        return new OAuthClientConfig(tokenEndpoint, clientId, clientSecret, scopes);
     }
 
     private async Task SaveAsync(

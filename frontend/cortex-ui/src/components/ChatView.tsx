@@ -2,10 +2,15 @@ import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ChatPanel } from "./ChatPanel";
 import { ConversationList } from "./ConversationList";
+import type { ModuleAgent, ModuleSkill } from "../lib/api";
 
 interface ChatViewProps {
   moduleId: string;
   suggestedPrompts?: string[];
+  /** Selectable agents for this module's chat. */
+  agents?: ModuleAgent[];
+  /** Skills invocable from the composer with "/name". */
+  skills?: ModuleSkill[];
   /** Streaming transport for the chat panel: "agui" (default, open AG-UI protocol) or "signalr". */
   transport?: "agui" | "signalr";
 }
@@ -16,7 +21,7 @@ interface ChatViewProps {
  * conversation is created it's selected and the list refreshed. Composed from the exported `ChatPanel` and
  * `ConversationList`, so a host can still use either alone.
  */
-export function ChatView({ moduleId, suggestedPrompts, transport }: ChatViewProps) {
+export function ChatView({ moduleId, suggestedPrompts, agents, skills, transport }: ChatViewProps) {
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined);
   const queryClient = useQueryClient();
 
@@ -33,6 +38,8 @@ export function ChatView({ moduleId, suggestedPrompts, transport }: ChatViewProp
           moduleId={moduleId}
           transport={transport}
           suggestedPrompts={suggestedPrompts}
+          agents={agents}
+          skills={skills}
           conversationId={selectedId}
           onNewChat={() => setSelectedId(undefined)}
           onConversationStarted={(id) => {

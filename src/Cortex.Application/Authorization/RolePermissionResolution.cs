@@ -27,8 +27,19 @@ public static class RolePermissionResolution
     /// </param>
     public static IReadOnlySet<string> PermissionsForRoles(
         IEnumerable<string> roles,
-        IReadOnlyDictionary<string, IReadOnlyList<string>> configuredByRole)
+        IReadOnlyDictionary<string, IReadOnlyList<string>> configuredByRole) =>
+        PermissionsForRoles(roles, configuredByRole, RolePermissions.Defaults);
+
+    /// <summary>
+    /// As above, with an explicit fallback baseline — the built-ins merged with any host-declared
+    /// <see cref="ProductRole"/>s (see <see cref="RoleBaseline.Merge"/>).
+    /// </summary>
+    public static IReadOnlySet<string> PermissionsForRoles(
+        IEnumerable<string> roles,
+        IReadOnlyDictionary<string, IReadOnlyList<string>> configuredByRole,
+        IReadOnlyDictionary<string, string[]> fallbackByRole)
     {
+        ArgumentNullException.ThrowIfNull(fallbackByRole);
         ArgumentNullException.ThrowIfNull(roles);
         ArgumentNullException.ThrowIfNull(configuredByRole);
 
@@ -54,7 +65,7 @@ public static class RolePermissionResolution
             }
             else
             {
-                result.UnionWith(RolePermissions.ForRole(role));
+                result.UnionWith(fallbackByRole.TryGetValue(role, out var fallback) ? fallback : []);
             }
         }
 

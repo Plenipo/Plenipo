@@ -162,8 +162,27 @@ public sealed class MockChatClient : IChatClient
 
     /// <summary>True once any function call/result is in the history — we only initiate a tool call on the
     /// first turn, never in response to a tool result (which would loop).</summary>
-    private static bool HasToolActivity(IReadOnlyList<ChatMessage> messages) =>
-        messages.Any(m => m.Contents.Any(c => c is FunctionCallContent or FunctionResultContent));
+    private static bool HasToolActivity(IReadOnlyList<ChatMessage> messages)
+    {
+        // Only THIS turn's activity matters: a function call/result after the last user message
+        // means the pipeline already ran the tool and now wants the summary. Tool calls from
+        // EARLIER turns must not block new ones — a multi-turn conversation (or a workflow step
+        // resuming the same conversation) asks again.
+        for (var i = messages.Count - 1; i >= 0; i--)
+        {
+            if (messages[i].Role == ChatRole.User)
+            {
+                return false;
+            }
+
+            if (messages[i].Contents.Any(c => c is FunctionCallContent or FunctionResultContent))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     private static string? LastUserText(IReadOnlyList<ChatMessage> messages) =>
         messages.LastOrDefault(m => m.Role == ChatRole.User)?.Text?.Trim();

@@ -73,6 +73,26 @@ public sealed class RequestEnricher(
 
         if (user is null)
         {
+            // Seat limit from the subscription (Tenant.MaxSeats; null = unlimited): a full tenant
+            // admits no NEW users. Existing users keep signing in; deactivating one frees a seat.
+            if (tenant.MaxSeats is { } maxSeats)
+            {
+                var activeSeats = await db.Users.CountAsync(u => u.IsActive, cancellationToken);
+                if (activeSeats >= maxSeats)
+                {
+                    await auditLog.RecordAuthEventAsync(new AuthAuditEntry
+                    {
+                        TenantId = tenant.Id,
+                        Subject = subject,
+                        UserDisplay = name,
+                        EventType = AuthAuditEventType.SeatLimitDenied,
+                        Detail = $"seat limit {maxSeats} reached",
+                        IpAddress = ipAddress,
+                    }, cancellationToken);
+                    return false;
+                }
+            }
+
             user = new User
             {
                 TenantId = tenant.Id,
@@ -80,15 +100,17 @@ public sealed class RequestEnricher(
                 Email = email ?? subject,
                 DisplayName = name,
             };
-            // Default the new user to the "user" role ONLY when the token asserts no roles of its own.
-            // A principal whose IdP already scopes it (e.g. "guest") must not silently escalate to the
-            // user baseline via a DB role the platform invented. In Token mode the platform NEVER
-            // invents a role — the external IdP is the single authority, so a role-less token means
-            // a permission-less user until the IdP says otherwise.
+            // Default the new user to the configured role (Auth:DefaultRole, "user" unless the
+            // product overrides it) ONLY when the token asserts no roles of its own. A principal
+            // whose IdP already scopes it (e.g. "guest") must not silently escalate via a DB role
+            // the platform invented. In Token mode the platform NEVER invents a role — the
+            // external IdP is the single authority, so a role-less token means a permission-less
+            // user until the IdP says otherwise.
             var hasTokenRoles = principal.FindAll(ClaimTypes.Role).Concat(principal.FindAll("roles")).Any();
-            if (!hasTokenRoles && !authorizationSource.Value.IsTokenSourced)
+            if (!hasTokenRoles && !authorizationSource.Value.IsTokenSourced &&
+                !string.IsNullOrWhiteSpace(authorizationSource.Value.DefaultRole))
             {
-                user.Roles.Add(new UserRole { TenantId = tenant.Id, UserId = user.Id, Role = Roles.User });
+                user.Roles.Add(new UserRole { TenantId = tenant.Id, UserId = user.Id, Role = authorizationSource.Value.DefaultRole });
             }
 
             db.Users.Add(user);

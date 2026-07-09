@@ -38,8 +38,14 @@ export function messageId(): string {
 export async function* runAgui(
   moduleId: string,
   message: string,
-  options: { threadId?: string; signal?: AbortSignal } = {},
+  options: { threadId?: string; signal?: AbortSignal; agent?: string; model?: string } = {},
 ): AsyncGenerator<AguiEvent> {
+  // The composer's agent/model picks ride AG-UI's forwardedProps (the protocol's extension slot);
+  // the server validates both against what it advertises.
+  const forwardedProps =
+    options.agent || options.model
+      ? { agent: options.agent || undefined, model: options.model || undefined }
+      : undefined;
   const res = await fetch(`${API_BASE}/api/agui/${moduleId}`, {
     method: "POST",
     headers: {
@@ -50,6 +56,7 @@ export async function* runAgui(
     body: JSON.stringify({
       threadId: options.threadId,
       messages: [{ id: messageId(), role: "user", content: message }],
+      forwardedProps,
     }),
     signal: options.signal,
   });

@@ -451,6 +451,30 @@ public static class AdminEndpoints
         .RequireAuthorization(PermissionRequirement.PolicyName(Permissions.ManageTenants))
         .WithName("Admin_CreateTenant");
 
+        // One-call provisioning: tenant + first admin + licensed modules + AI budget + seat limit
+        // in a single transaction. The logic lives in ITenantProvisioningService — one code path
+        // shared with the billing worker (docs/COMMERCIALIZATION.md); this is the operator's door.
+        group.MapPost("/tenants/provision", async (
+            [FromBody] ProvisionTenantRequest body, Cortex.Application.Commerce.ITenantProvisioningService provisioning,
+            IModuleCatalog catalog, CancellationToken ct) =>
+        {
+            var result = await provisioning.ProvisionAsync(new Cortex.Application.Commerce.ProvisionTenantCommand(
+                body.Name ?? "", body.Slug ?? "", body.AdminEmail ?? "",
+                body.AdminSubject, body.AdminDisplayName, body.Modules,
+                body.MaxSeats, body.MonthlyTokenBudget), ct);
+
+            return result.Error switch
+            {
+                Cortex.Application.Commerce.ProvisionError.Invalid => Results.BadRequest(result.ErrorDetail),
+                Cortex.Application.Commerce.ProvisionError.SlugTaken => Results.Conflict(result.ErrorDetail),
+                _ => Results.Created($"/api/admin/tenants/{result.TenantId}", new ProvisionedTenantDto(
+                    result.TenantId, body.Slug!.Trim().ToLowerInvariant(), result.AdminUserId, result.AdminSubject!,
+                    result.EnabledModules!.ToArray(), body.MaxSeats, body.MonthlyTokenBudget)),
+            };
+        })
+        .RequireAuthorization(PermissionRequirement.PolicyName(Permissions.ManageTenants))
+        .WithName("Admin_ProvisionTenant");
+
         // Activate or deactivate a tenant — a tenant-wide kill switch (enforced in request enrichment). You
         // can't deactivate the tenant you're operating in. Auto-audited as an entity change.
         group.MapPut("/tenants/{tenantId:guid}/active", async (
@@ -570,8 +594,9 @@ public static class AdminEndpoints
 
         // Roles and the baseline permissions each grants — the tenant's configured mapping (editable),
         // falling back to the built-in defaults for a tenant that has none yet.
-        group.MapGet("/roles", async (PlatformDbContext db, CancellationToken ct) =>
+        group.MapGet("/roles", async (PlatformDbContext db, IEnumerable<ProductRole> productRoles, CancellationToken ct) =>
         {
+            var baseline = RoleBaseline.Merge(productRoles);
             var rows = await db.RolePermissions
                 .Select(r => new { r.Role, r.Permission })
                 .ToListAsync(ct);
@@ -580,13 +605,14 @@ public static class AdminEndpoints
                 .ToDictionary(g => g.Key, g => g.Select(x => x.Permission).ToArray(), StringComparer.Ordinal);
             var tenantHasConfiguration = rows.Count > 0;
 
-            // Built-in roles first (always present), then any custom roles the tenant has defined (which
-            // exist purely as their permission rows).
+            // Built-in and host-declared roles first (always present), then any custom roles the
+            // tenant defined at runtime (which exist purely as their permission rows).
+            var declared = Roles.All.Concat(baseline.Keys).Distinct(StringComparer.Ordinal).ToArray();
             var customRoles = configured.Keys
-                .Where(r => !Roles.All.Contains(r, StringComparer.Ordinal))
+                .Where(r => !declared.Contains(r, StringComparer.Ordinal))
                 .OrderBy(r => r, StringComparer.Ordinal);
 
-            var roles = Roles.All.Concat(customRoles).Select(role =>
+            var roles = declared.Concat(customRoles).Select(role =>
             {
                 var builtIn = Roles.All.Contains(role, StringComparer.Ordinal);
 
@@ -596,10 +622,10 @@ public static class AdminEndpoints
                     return new RoleDto(role, ["*"], Editable: false, BuiltIn: true);
                 }
 
-                // A built-in role falls back to its code default until the tenant has any configuration;
-                // a custom role only ever exists as its rows.
-                var permissions = builtIn && !tenantHasConfiguration
-                    ? RolePermissions.ForRole(role).ToArray()
+                // A declared role (built-in or host product role) falls back to its baseline until
+                // the tenant has any configuration; a runtime custom role only ever exists as its rows.
+                var permissions = !tenantHasConfiguration && baseline.TryGetValue(role, out var fallback)
+                    ? fallback
                     : configured.GetValueOrDefault(role, []);
 
                 return new RoleDto(
@@ -617,7 +643,7 @@ public static class AdminEndpoints
         // Create a custom (tenant-defined) role with at least one permission.
         group.MapPost("/roles", async (
             [FromBody] CreateRoleRequest body, PlatformDbContext db, ICurrentUser current, IAuditLog auditLog,
-            IModuleCatalog catalog, CancellationToken ct) =>
+            IModuleCatalog catalog, IEnumerable<ProductRole> productRoles, CancellationToken ct) =>
         {
             var role = body.Role?.Trim() ?? string.Empty;
             if (!IsValidCustomRoleName(role))
@@ -656,7 +682,7 @@ public static class AdminEndpoints
             }
 
             // Seed the tenant's built-in defaults first so the configured-vs-default semantics stay consistent.
-            await DatabaseInitializer.EnsureRolePermissionsSeededAsync(db, tenantId, ct);
+            await DatabaseInitializer.EnsureRolePermissionsSeededAsync(db, tenantId, RoleBaseline.Merge(productRoles), ct);
             if (await db.RolePermissions.AnyAsync(r => r.Role == role, ct))
             {
                 return Results.Conflict($"Role '{role}' already exists.");
@@ -724,7 +750,8 @@ public static class AdminEndpoints
         // rejected (it always holds "*").
         group.MapPut("/roles/{role}/permissions", async (
             string role, [FromBody] RolePermissionsRequest body,
-            PlatformDbContext db, ICurrentUser current, IAuditLog auditLog, IModuleCatalog catalog, CancellationToken ct) =>
+            PlatformDbContext db, ICurrentUser current, IAuditLog auditLog, IModuleCatalog catalog,
+            IEnumerable<ProductRole> productRoles, CancellationToken ct) =>
         {
             if (string.Equals(role, Roles.SystemAdmin, StringComparison.Ordinal))
             {
@@ -768,7 +795,7 @@ public static class AdminEndpoints
 
             // Seed the tenant's full default set first if it has none, so replacing one role can't leave the
             // others resolving to empty.
-            await DatabaseInitializer.EnsureRolePermissionsSeededAsync(db, tenantId, ct);
+            await DatabaseInitializer.EnsureRolePermissionsSeededAsync(db, tenantId, RoleBaseline.Merge(productRoles), ct);
 
             var existing = await db.RolePermissions.Where(r => r.Role == role).ToListAsync(ct);
             var previous = existing.Select(r => r.Permission).ToHashSet(StringComparer.Ordinal);
@@ -1159,6 +1186,19 @@ public static class AdminEndpoints
 
     /// <summary>Create a tenant: display name + stable lowercase-kebab slug (unique).</summary>
     private sealed record CreateTenantRequest(string? Name, string? Slug);
+
+    /// <summary>
+    /// One-call tenant provisioning (the billing webhook's target). Modules null = every installed
+    /// module stays enabled (default-on); a list disables the rest. MonthlyTokenBudget present =
+    /// platform-managed metered AI; absent = the customer brings their own key later.
+    /// </summary>
+    public sealed record ProvisionTenantRequest(
+        string? Name, string? Slug, string? AdminEmail, string? AdminSubject, string? AdminDisplayName,
+        string[]? Modules, int? MaxSeats, long? MonthlyTokenBudget);
+
+    private sealed record ProvisionedTenantDto(
+        Guid TenantId, string Slug, Guid AdminUserId, string AdminSubject,
+        string[] EnabledModules, int? MaxSeats, long? MonthlyTokenBudget);
     private sealed record RoleChangeRequest(string Role);
     private sealed record PermissionChangeRequest(string Permission);
     private sealed record RolePermissionsRequest(string[]? Permissions);

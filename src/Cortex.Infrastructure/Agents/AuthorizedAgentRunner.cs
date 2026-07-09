@@ -86,18 +86,75 @@ public sealed class AuthorizedAgentRunner(
         // connection (a tenant may run its own provider + vaulted key; SaaS bring-your-own-key).
         var aiSettings = await tenantAiSettings.ResolveAsync(cancellationToken);
 
-        // The tenant's default agent profile for this module (if any) retasks or specializes the
-        // chatbot — different voice/policy, its own model, and (when it declares a tool selection)
-        // a narrower tool surface — no code change. Resolved before tool filtering.
-        var profile = await agentProfiles.ResolveActiveAsync(request.ModuleId, cancellationToken);
+        // A picked name may be a module WORKFLOW: a sequential chain of the module's agents. Each
+        // step runs as a full authorized turn through this very method (same RBAC, budgets,
+        // approvals, audit), with the previous step's output handed to the next. Steps must be
+        // agents — workflows never nest.
+        if (!string.IsNullOrWhiteSpace(request.Agent))
+        {
+            var workflow = manifest.Workflows.FirstOrDefault(
+                w => string.Equals(w.Name, request.Agent, StringComparison.Ordinal));
+            if (workflow is not null)
+            {
+                if (workflow.AgentNames.Count == 0 ||
+                    workflow.AgentNames.Any(n => manifest.Workflows.Any(w => string.Equals(w.Name, n, StringComparison.Ordinal))))
+                {
+                    yield return AgentStreamEvent.Failed(
+                        $"Workflow '{workflow.Name}' is misdeclared: it needs at least one step, and steps must be agents, not workflows.");
+                    yield break;
+                }
 
-        // The turn's chat client: the tenant's connection with the profile's model override. A
-        // misconfigured connection (e.g. a key that no longer reveals) fails the turn readably.
+                await foreach (var evt in RunWorkflowAsync(workflow, request, cancellationToken))
+                {
+                    yield return evt;
+                }
+
+                yield break;
+            }
+        }
+
+        // The agent for this turn: the one the user picked by name (tenant profile or manifest
+        // agent — never a silent fallback when the name is unknown), else the default. Either way
+        // it retasks or specializes the chatbot — different voice/policy, its own model, and (when
+        // it declares a tool selection) a narrower tool surface. Resolved before tool filtering.
+        AgentProfile? profile;
+        if (!string.IsNullOrWhiteSpace(request.Agent))
+        {
+            profile = await agentProfiles.ResolveNamedAsync(request.ModuleId, request.Agent, cancellationToken);
+            if (profile is null)
+            {
+                yield return AgentStreamEvent.Failed(
+                    $"Unknown agent '{request.Agent}' for the '{manifest.DisplayName}' module.");
+                yield break;
+            }
+        }
+        else
+        {
+            profile = await agentProfiles.ResolveActiveAsync(request.ModuleId, cancellationToken);
+        }
+
+        // Per-turn model pick (Claude-Code-style): honoured only from the advertised list, so a
+        // client can never steer the turn onto an arbitrary model string. Beats the agent's pin.
+        string? modelOverride = profile?.Model;
+        if (!string.IsNullOrWhiteSpace(request.Model))
+        {
+            if (!aiSettings.AllowsModel(request.Model))
+            {
+                yield return AgentStreamEvent.Failed(
+                    $"Model '{request.Model}' is not available. An administrator configures the selectable models (Ai:AvailableModels).");
+                yield break;
+            }
+
+            modelOverride = request.Model;
+        }
+
+        // The turn's chat client: the tenant's connection with the model override. A misconfigured
+        // connection (e.g. a key that no longer reveals) fails the turn readably.
         IChatClient? chatClient = null;
         string? clientError = null;
         try
         {
-            chatClient = await chatClients.ResolveAsync(aiSettings, profile?.Model, cancellationToken);
+            chatClient = await chatClients.ResolveAsync(aiSettings, modelOverride, cancellationToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -174,6 +231,22 @@ public sealed class AuthorizedAgentRunner(
             }
         }
 
+        // Slash invocation (Claude-Code-style): a message starting with /skill-name — matched
+        // against the skills ADVERTISED for this module — becomes an explicit load-and-follow
+        // instruction. Anything else starting with '/' passes through untouched.
+        var message = request.Message;
+        if (skillCatalog.IsEnabled && message.StartsWith('/') && message.Length > 1)
+        {
+            var parts = message[1..].Split(' ', 2, StringSplitOptions.TrimEntries);
+            var slashSkill = skillCatalog.List(request.ModuleId)
+                .FirstOrDefault(s => string.Equals(s.Name, parts[0], StringComparison.OrdinalIgnoreCase));
+            if (slashSkill is not null)
+            {
+                var rest = parts.Length > 1 && parts[1].Length > 0 ? parts[1] : "Apply it to this conversation now.";
+                message = $"Load the '{slashSkill.Name}' skill with load_skill and follow its instructions for this request: {rest}";
+            }
+        }
+
         // Tools marked side-effecting are blocked pending human approval — both the module
         // manifest's declarations and per-tool flags on platform/connector tools (connector fetch
         // tools and skill scripts carry the flag on the ModuleTool itself, not in a manifest).
@@ -189,7 +262,7 @@ public sealed class AuthorizedAgentRunner(
         // actually load them; the full instructions arrive via the load_skill tool on demand.
         if (skillCatalog.IsEnabled && toolsByName.ContainsKey("load_skill"))
         {
-            instructions = SkillAdvertisement.Append(instructions, skillCatalog.List());
+            instructions = SkillAdvertisement.Append(instructions, skillCatalog.List(request.ModuleId));
         }
 
         // Provenance: pin the exact instruction assembly this turn runs under. The snapshot store
@@ -214,10 +287,12 @@ public sealed class AuthorizedAgentRunner(
         // calls/results), persisted per conversation. Conversations from before session support — or
         // whose state fails to round-trip — fall back to seeding a fresh session with the replayed
         // user/assistant history, exactly the pre-session behaviour.
+        // The model gets the (possibly slash-rewritten) message; the transcript below persists what
+        // the user actually typed.
         var session = await ResumeSessionAsync(agent, conversation, cancellationToken);
         IReadOnlyList<ChatMessage> turnInput = session.Resumed
-            ? [new ChatMessage(ChatRole.User, request.Message)]
-            : BuildHistory(conversation, request.Message);
+            ? [new ChatMessage(ChatRole.User, message)]
+            : BuildHistory(conversation, message);
 
         var runOptions = new ChatClientAgentRunOptions(new ChatOptions
         {
@@ -409,6 +484,67 @@ public sealed class AuthorizedAgentRunner(
         finally
         {
             await enumerator.DisposeAsync();
+        }
+    }
+
+
+    /// <summary>
+    /// Sequential workflow execution by composition: each step is a normal <see cref="RunAsync"/>
+    /// turn in the SAME conversation, so every platform guarantee applies per step and the
+    /// transcript shows the full chain (handoffs included). Only the last step's Completed event
+    /// reaches the client; a failed step fails the workflow rather than running the next blind.
+    /// </summary>
+    private async IAsyncEnumerable<AgentStreamEvent> RunWorkflowAsync(
+        WorkflowDescriptor workflow,
+        AgentRunRequest request,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        Guid? conversationId = request.ConversationId;
+        var previousOutput = new StringBuilder();
+
+        for (var i = 0; i < workflow.AgentNames.Count; i++)
+        {
+            var stepName = workflow.AgentNames[i];
+            var stepMessage = i == 0
+                ? request.Message
+                : $"Workflow '{workflow.Name}', step {i + 1} of {workflow.AgentNames.Count} — do your part.\n" +
+                  $"Original request: {request.Message}\n" +
+                  $"Output of the prior step:\n{previousOutput}";
+            previousOutput.Clear();
+
+            var step = request with { Agent = stepName, Message = stepMessage, ConversationId = conversationId };
+            if (workflow.AgentNames.Count > 1)
+            {
+                yield return AgentStreamEvent.Token($"{(i == 0 ? "" : "\n\n")}**{stepName}** ({i + 1}/{workflow.AgentNames.Count}):\n\n");
+            }
+
+            var failed = false;
+            await foreach (var evt in RunAsync(step, cancellationToken))
+            {
+                if (evt.Type == AgentStreamEventType.Token && evt.Text is not null)
+                {
+                    previousOutput.Append(evt.Text);
+                }
+
+                if (evt.Type == AgentStreamEventType.Completed)
+                {
+                    // Chain all steps into ONE conversation; only the last step completes the run.
+                    conversationId = evt.ConversationId ?? conversationId;
+                    if (i == workflow.AgentNames.Count - 1)
+                    {
+                        yield return evt;
+                    }
+                    continue;
+                }
+
+                failed |= evt.Type == AgentStreamEventType.Error;
+                yield return evt;
+            }
+
+            if (failed)
+            {
+                yield break;
+            }
         }
     }
 

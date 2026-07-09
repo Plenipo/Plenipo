@@ -23,6 +23,9 @@ public enum AuthAuditEventType
 
     /// <summary>A custom (tenant-defined) role was deleted.</summary>
     RoleDeleted = 10,
+
+    /// <summary>A new user was refused because the tenant's subscription seat limit is reached.</summary>
+    SeatLimitDenied = 11,
 }
 
 /// <summary>Append-only record of an identity / authorization event.</summary>
