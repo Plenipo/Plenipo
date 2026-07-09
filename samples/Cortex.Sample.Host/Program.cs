@@ -10,6 +10,7 @@ using Cortex.Connectors.GoogleDrive;
 using Cortex.Connectors.MsGraph;
 using Cortex.Connectors.Peer;
 using Cortex.Connectors.S3;
+using Cortex.Connectors.Documenso;
 using Cortex.Modules.Finance;
 using Cortex.Modules.Legal;
 using Cortex.Modules.Nutrition;
@@ -39,6 +40,7 @@ builder.AddCortexConnector<CortexPeerConnector>(); // verticals are separate sys
 builder.AddCortexConnector<MsGraphConnector>();
 builder.AddCortexConnector<GoogleDriveConnector>();
 builder.AddCortexConnector<S3Connector>();
+builder.AddCortexConnector<DocumensoConnector>(); // e-signature: hosted or self-hosted, API-token auth
 
 // What this host SELLS (docs/COMMERCIALIZATION.md): the plan — not checkout metadata — decides
 // what a purchase grants. The sample sells the Legal vertical in the three standard tiers.
