@@ -203,11 +203,13 @@ function DataTable({
   columns,
   editor,
   detailEndpoint,
+  emptyText,
 }: {
   endpoint: string;
   columns: TabColumn[];
   editor?: TabEditor | null;
   detailEndpoint?: string | null;
+  emptyText?: string | null;
 }) {
   const qc = useQueryClient();
   const { data, isLoading, isError, error } = useQuery({
@@ -280,7 +282,7 @@ function DataTable({
             {rows.length === 0 && (
               <tr>
                 <td colSpan={cols.length + (hasRowActions ? 1 : 0)} className="px-4 py-6 text-center text-slate-400">
-                  No data yet.
+                  {emptyText ?? "No data yet."}
                 </td>
               </tr>
             )}
@@ -363,6 +365,7 @@ export function GenericTab({ tab, children }: GenericTabProps) {
             columns={tab.columns ?? []}
             editor={tab.editor}
             detailEndpoint={tab.detailEndpoint}
+            emptyText={tab.placeholder}
           />
         ) : (
           <div className="rounded-lg border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
