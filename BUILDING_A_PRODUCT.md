@@ -40,7 +40,7 @@ app.Run();
 | # | You want to… | The seam | Worked example |
 |---|---|---|---|
 | 1 | Ship domain behavior: tools, tabs (with editors and drill-downs), agents, workflows, skills | `IModule` + `ModuleManifest` (incl. `Agents`, `Workflows`, `SkillsPath`) | [BUILDING_A_MODULE.md](BUILDING_A_MODULE.md); `samples/Cortex.Modules.Legal` |
-| 2 | Offer data sources (service or per-user OAuth) | `IConnector` + `AddCortexConnector<T>()`; delegated OAuth URL shape comes from the manifest's `OAuthAuthorizeUrlTemplate`/`OAuthTokenUrlTemplate` (Entra default, Google-style fixed URLs supported) | `src/Cortex.Connectors/GoogleDrive` |
+| 2 | Offer data sources (service or per-user OAuth) — **built-in or your own** | `IConnector` + `AddCortexConnector<T>()`; delegated OAuth URL shape comes from the manifest's `OAuthAuthorizeUrlTemplate`/`OAuthTokenUrlTemplate` (Entra default, Google-style fixed URLs supported). Define a **domain-specific connector in your own repo** (reference `Cortex.Connectors.Sdk` + `Cortex.Modules.Sdk`, implement `IConnector` in your assembly) and register it the same way — the catalog, per-tenant enable/settings, permission gating, and agent-tool exposure are all DI-driven and never keyed to a connector's assembly | built-in: `src/Cortex.Connectors/GoogleDrive`; host-defined: `samples/Cortex.Sample.Host/HostDefinedCrmConnector.cs` |
 | 3 | Sell plans that provision themselves | `AddCortexProduct(new ProductOffering { … })` — the PLAN is authoritative for modules/seats/budget/dedicated, never checkout metadata | `samples/Cortex.Sample.Host/Program.cs` |
 | 4 | Act right after a tenant is provisioned (welcome email, domain seeding, external registration) | `ITenantProvisionedHook` + `AddCortexTenantProvisionedHook<T>()` — post-commit, best-effort, fired for operator AND billing-webhook provisioning | `samples/Cortex.Sample.Host/WelcomeEmailHook.cs` |
 | 5 | Deliver notifications your way (SMS, chat-ops, …) | `INotificationChannel` + `AddCortexNotificationChannel<T>()` — fan-out is best-effort per channel; in-app inbox is always the baseline. Email is built in: configure the `Email:` section | `src/Cortex.Infrastructure/Notifications/EmailNotificationChannel.cs` |
@@ -63,6 +63,34 @@ app.Run();
 - **Keyless by default**: everything above is testable with the Mock provider, the fake IdP,
   and recording seams — a product's CI needs no external accounts. Copy the patterns in
   `samples/Cortex.Sample.Host.IntegrationTests`.
+
+## Shipping the web UI (no npm registry needed)
+
+The `@cortex/*` frontend packages don't need a registry to reach production. The API serves
+the SPA itself, same origin, no CORS, no asset host — and the shell asks the host who it is at
+runtime, so the bundles are **brand-agnostic**:
+
+**Preferred — download from a Cortex release (no checkout, no pnpm):** every GitHub Release
+attaches `cortex-ui-app.zip` and `cortex-admin-ui.zip` (built with a same-origin API base),
+plus all the nupkgs. Unzip into your host's `wwwroot/app` and `wwwroot/admin`, set your name in
+configuration, done:
+
+```jsonc
+// appsettings.json
+"Branding": { "ProductName": "YourProduct" }   // → /api/platform/branding → top bar + tab title
+```
+
+**Alternative — build from a checkout** (when you're changing the frontend itself):
+
+1. `VITE_API_BASE= pnpm -C frontend/cortex-ui build:app` → copy `dist-app/` to `wwwroot/app`
+   (served at `/`, with an `index.html` fallback for client-side deep links; `/api`, `/admin`,
+   `/hubs`, health, and OpenAPI are never shadowed). `VITE_BRAND_NAME` still works as a
+   build-time bake, but runtime `Branding:ProductName` supersedes it.
+2. `pnpm -C frontend/admin-ui build` → copy `dist/` to `wwwroot/admin` (served at `/admin`).
+
+Both mounts are no-ops when the directories are absent, so an API-only host and the dev-time
+Vite servers (which the sample AppHosts launch with hot reload) keep working unchanged. See
+casewell's `scripts/build-ui.ps1` for a worked one-command version of the checkout path.
 
 ## What's deliberately NOT extensible (yet)
 
