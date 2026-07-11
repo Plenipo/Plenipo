@@ -220,13 +220,14 @@ export function AppShell({ moduleUi, branding }: AppShellProps = {}) {
                     }
                   />
                 ))}
-              {/* Land on the first available tab — chat when enabled, else the first module tab; a
-                  module with no visible tabs shows an empty state rather than looping the redirect. */}
+              {/* Land on the module's declared Home tab when one exists, else the first available
+                  tab — chat when enabled, else the first module tab; a module with no visible tabs
+                  shows an empty state rather than looping the redirect. */}
               <Route
                 path="*"
                 element={
                   tabs.length > 0 ? (
-                    <Navigate to={tabs[0].route} replace />
+                    <Navigate to={(tabs.find((t) => t.home) ?? tabs[0]).route} replace />
                   ) : (
                     <div className="grid h-full place-items-center text-sm text-slate-500">
                       Nothing to show yet.

@@ -103,6 +103,35 @@ describe("AppShell deep-linking", () => {
     expect(screen.queryByText("Chat")).toBeNull();
   });
 
+  it("lands on a declared Home tab instead of chat, with Chat still first in the nav", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/api/platform/modules"))
+          return json([
+            {
+              id: "finance",
+              displayName: "Finance",
+              tabs: [
+                // Declared AFTER another tab on purpose: home wins by flag, not position.
+                { id: "transactions", label: "Transactions", route: "/finance/transactions" },
+                { id: "reports", label: "Reports", route: "/finance/reports", home: true },
+              ],
+            },
+          ]);
+        if (url.includes("/api/platform/me"))
+          return json({ userId: "u", displayName: "Dev", tenantId: "t", permissions: [] });
+        if (url.includes("/api/platform/info")) return json({ chatEnabled: true, demoMode: false });
+        return json(null);
+      }),
+    );
+    renderAt("/"); // default landing, chat ENABLED
+
+    expect(await screen.findByText("board:finance:reports")).toBeTruthy();
+    expect(screen.getByText("Chat")).toBeTruthy(); // chat-first nav is unchanged
+  });
+
   it("shows an access-denied screen (not 'unreachable') when the manifest load is forbidden", async () => {
     stubModulesError(403);
     renderAt("/");

@@ -206,6 +206,13 @@ public sealed record TabDescriptor
     public int Order { get; init; }
 
     /// <summary>
+    /// Land on this tab when the app opens (instead of Chat — the shell's default landing).
+    /// Opt-in: with no Home tab declared anywhere, the shell stays chat-first exactly as before.
+    /// The first Home tab of the active module wins; Chat remains first in the nav either way.
+    /// </summary>
+    public bool Home { get; init; }
+
+    /// <summary>
     /// Optional: a GET endpoint returning a JSON array, which the shell renders as a generic table using
     /// <see cref="Columns"/>. Lets a module's list-style tab show real data without shipping any custom UI.
     /// When null, the tab renders a placeholder (or content supplied by the consuming app).
