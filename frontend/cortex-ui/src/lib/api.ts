@@ -91,6 +91,8 @@ export interface ModuleTab {
   label: string;
   route: string;
   icon?: string;
+  /** Land here on app open instead of Chat. Absent everywhere = the shell stays chat-first. */
+  home?: boolean;
   /** When set, the shell renders this GET endpoint's JSON array as a table (using `columns`). */
   dataEndpoint?: string;
   columns?: TabColumn[];

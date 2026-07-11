@@ -17,7 +17,7 @@ internal static class TabDtoMapper
             .Where(t => t.Permission is null || user.HasPermission(t.Permission))
             .OrderBy(t => t.Order)
             .Select(t => new TabDto(
-                t.Id, t.Label, t.Route, t.Icon, t.DataEndpoint,
+                t.Id, t.Label, t.Route, t.Icon, t.Home, t.DataEndpoint,
                 t.Columns.Select(c => new TabColumnDto(c.Field, c.Header, c.Masked)).ToArray(),
                 t.Placeholder,
                 // The editor ships only to callers holding its permission, so the payload never
@@ -57,7 +57,7 @@ internal static class TabDtoMapper
 }
 
 internal sealed record TabDto(
-    string Id, string Label, string Route, string? Icon, string? DataEndpoint, TabColumnDto[] Columns, string? Placeholder,
+    string Id, string Label, string Route, string? Icon, bool Home, string? DataEndpoint, TabColumnDto[] Columns, string? Placeholder,
     TabEditorDto? Editor, string? DetailEndpoint, TabChartDto? Chart, TabActionDto[] Actions, TabRowActionDto[] RowActions);
 
 internal sealed record TabChartDto(string Kind, string XField, string YField, string? SeriesField, string? YLabel);
