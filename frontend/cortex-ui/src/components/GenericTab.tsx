@@ -26,6 +26,33 @@ function resolveRowUrl(template: string, row: Record<string, unknown>): string {
   return template.replace(/\{(\w+)\}/g, (_, field: string) => encodeURIComponent(String(row[field] ?? "")));
 }
 
+/** Mask all but the last four characters — enough to recognize your own account, not enough to read it off a screen. */
+const maskValue = (text: string) => (text.length > 4 ? `••••${text.slice(-4)}` : "••••");
+
+/**
+ * One cell's value. Columns declaring `masked` (the display-side companion of `[Pii]`) render
+ * masked behind an explicit reveal toggle — per cell, per mount, never persisted. Masking is a
+ * screen-privacy affordance, not access control: the value already reached this authorized
+ * caller; it just shouldn't sit exposed on a shared screen.
+ */
+function CellValue({ column, row }: { column: TabColumn; row: Record<string, unknown> }) {
+  const [revealed, setRevealed] = useState(false);
+  const raw = row[column.field];
+  const text = raw == null ? "" : String(raw);
+  if (!column.masked || text === "") return <>{text}</>;
+  return (
+    <button
+      type="button"
+      onClick={() => setRevealed((v) => !v)}
+      aria-pressed={revealed}
+      aria-label={`${revealed ? "Hide" : "Reveal"} ${column.header}`}
+      className="focus-ring rounded tabular-nums"
+    >
+      {revealed ? text : maskValue(text)}
+    </button>
+  );
+}
+
 /** The generic drill-down: a detail document rendered as prose and sub-tables, with a way back. */
 function DetailView({ endpoint, onBack }: { endpoint: string; onBack: () => void }) {
   const { data, isLoading, isError, error } = useQuery({
@@ -373,14 +400,14 @@ function DataTable({
               >
                 {title && (
                   <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
-                    {row[title.field] == null ? "" : String(row[title.field])}
+                    <CellValue column={title} row={row} />
                   </p>
                 )}
                 {visible.map((c) => (
                   <p key={c.field} className="flex justify-between gap-4 text-sm">
                     <span className="text-slate-400 dark:text-slate-500">{c.header}</span>
                     <span className="min-w-0 truncate text-right text-slate-700 dark:text-slate-200">
-                      {row[c.field] == null ? "" : String(row[c.field])}
+                      <CellValue column={c} row={row} />
                     </span>
                   </p>
                 ))}
@@ -394,7 +421,7 @@ function DataTable({
                         <p key={c.field} className="flex justify-between gap-4">
                           <span className="text-slate-400 dark:text-slate-500">{c.header}</span>
                           <span className="min-w-0 truncate text-right text-slate-700 dark:text-slate-200">
-                            {row[c.field] == null ? "" : String(row[c.field])}
+                            <CellValue column={c} row={row} />
                           </span>
                         </p>
                       ))}
@@ -446,7 +473,7 @@ function DataTable({
                 <tr key={i}>
                   {cols.map((c) => (
                     <td key={c.field} className="px-4 py-2 text-slate-700 dark:text-slate-200">
-                      {row[c.field] == null ? "" : String(row[c.field])}
+                      <CellValue column={c} row={row} />
                     </td>
                   ))}
                   {hasRowActions && (
